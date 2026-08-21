@@ -1,10 +1,10 @@
 -- ============================================================
--- Diyu's GraveSight
+-- Diyu's GraveSight (Hardened Edition)
 -- ============================================================
 -- Personal Minecraft grief-detection and area-monitoring system.
 --
 -- CODE MAP
---   1. Configuration
+--   1. Configuration & Security Core
 --   2. Peripheral Setup
 --   3. Detection Lists
 --   4. Shared State
@@ -15,17 +15,10 @@
 --   9. User Interface
 --  10. Version & Auto Update
 --  11. Program Startup
---
--- Required:
---   * Advanced (gold) Computer for colors and mouse controls
---   * Player Detector
---   * Environment Detector
---   * Geo Scanner
---   * Chat Box (optional; used for chat alerts)
 -- ============================================================
 
 -- ============================================================
--- 1. CONFIGURATION
+-- 1. CONFIGURATION & SECURITY CORE
 -- ============================================================
 local YOUR_NAME = "DiyuWupo"       -- Your Minecraft username
 local RADIUS = 50                    -- Player/entity monitoring radius
@@ -36,6 +29,7 @@ local CHECK_INTERVAL = 2             -- Main monitoring loop delay (seconds)
 local SCAN_INTERVAL = 12             -- Sculk scan interval (seconds)
 local MAX_LOG_ENTRIES = 300          -- Log entries kept in memory
 local SETTINGS_FILE = "gravesight_settings.cfg" -- Saved settings
+local REDNET_CHANNEL = 999           -- Offsite blackbox broadcast channel
 
 local VERSION = "1.0.0"
 local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/gravesight.lua"
@@ -44,9 +38,6 @@ local UPDATE_TEMP = ".gravesight_update.tmp"
 local UPDATE_BACKUP = ".gravesight_backup.lua"
 local PROGRAM_PATH = shell.getRunningProgram()
 
--- ============================================================
--- FIRST-RUN SETUP
--- ============================================================
 local CONFIG_FILE = "gravesight_config.cfg"
 local DEFAULT_OWNER = YOUR_NAME
 local setup = {
@@ -55,10 +46,18 @@ local setup = {
   passwordHash = ""
 }
 
+local failedAttempts = 0
+
+-- Iterated Salted Hash Algorithm
 local function hashPassword(password)
-  local hash = 2166136261
-  for i = 1, #password do
-    hash = (hash * 16777619 + string.byte(password, i)) % 2147483647
+  local salt = "GraveSight_Salt_2026_Secure"
+  local str = password .. salt
+  local hash = 5381
+  
+  for round = 1, 1000 do
+    for i = 1, #str do
+      hash = ((hash * 33) + string.byte(str, i)) % 2147483647
+    end
   end
   return tostring(hash)
 end
@@ -96,7 +95,13 @@ local function saveSetup()
 end
 
 local function passwordCorrect(password)
-  return hashPassword(password or "") == setup.passwordHash
+  if hashPassword(password or "") == setup.passwordHash then
+    failedAttempts = 0
+    return true
+  else
+    failedAttempts = failedAttempts + 1
+    return false
+  end
 end
 
 local function runFirstSetup()
@@ -119,12 +124,10 @@ local function runFirstSetup()
     center(4, "========================================", colors.gray)
   end
 
-  -- Initial Boot Sequence
   drawHeader()
   center(7, "[ INITIALIZING WARDEN PROTOCOLS ]", colors.green)
   sleep(0.4)
 
-  -- Animated Loading Bar
   local barWidth = 20
   local startX = math.floor((w - barWidth) / 2) + 1
   for i = 1, barWidth do
@@ -136,7 +139,6 @@ local function runFirstSetup()
   term.setBackgroundColor(colors.black)
   sleep(0.3)
 
-  -- Prompt 1: Owner Name
   drawHeader()
   term.setCursorPos(3, 7)
   term.setTextColor(colors.cyan)
@@ -160,7 +162,6 @@ local function runFirstSetup()
   end
   owner = owner:gsub("%s+", "")
 
-  -- Prompt 2: Password
   drawHeader()
   term.setCursorPos(3, 7)
   term.setTextColor(colors.cyan)
@@ -183,7 +184,6 @@ local function runFirstSetup()
     password = read("*")
   end
 
-  -- Prompt 3: Confirm Password
   term.setCursorPos(3, 13)
   term.setTextColor(colors.cyan)
   term.write("STEP 3: CONFIRM PASSWORD")
@@ -206,13 +206,11 @@ local function runFirstSetup()
     confirm = read("*")
   end
 
-  -- Save Configuration
   setup.owner = owner
   setup.passwordHash = hashPassword(password)
   setup.configured = true
   saveSetup()
 
-  -- Boot Complete Splash
   term.setBackgroundColor(colors.black)
   term.clear()
   center(6, "========================================", colors.cyan)
@@ -237,54 +235,17 @@ local whitelist = {}
 -- UI COLORS
 -- ============================================================
 local UI_THEMES = {
-  ["Sculk"] = {
-    background = colors.black,
-    panel = colors.gray,
-    text = colors.white,
-    muted = colors.lightGray,
-    accent = colors.cyan,
-    selected = colors.blue,
-    warning = colors.orange,
-    danger = colors.red
-  },
-  ["Deep"] = {
-    background = colors.black,
-    panel = colors.gray,
-    text = colors.white,
-    muted = colors.lightGray,
-    accent = colors.blue,
-    selected = colors.cyan,
-    warning = colors.orange,
-    danger = colors.red
-  },
-  ["Ancient"] = {
-    background = colors.black,
-    panel = colors.gray,
-    text = colors.white,
-    muted = colors.lightGray,
-    accent = colors.purple,
-    selected = colors.magenta,
-    warning = colors.orange,
-    danger = colors.red
-  },
-  ["Warden"] = {
-    background = colors.black,
-    panel = colors.gray,
-    text = colors.white,
-    muted = colors.lightGray,
-    accent = colors.green,
-    selected = colors.lime,
-    warning = colors.orange,
-    danger = colors.red
-  }
+  ["Sculk"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.cyan, selected = colors.blue, warning = colors.orange, danger = colors.red },
+  ["Deep"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.blue, selected = colors.cyan, warning = colors.orange, danger = colors.red },
+  ["Ancient"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.purple, selected = colors.magenta, warning = colors.orange, danger = colors.red },
+  ["Warden"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.green, selected = colors.lime, warning = colors.orange, danger = colors.red }
 }
 
 local UI_THEME = "Sculk"
 
 if not term.isColor() then
-  print("WARNING: This needs an Advanced (gold) Computer for colors/clicks.")
-  print("It may still run, but will look wrong. Press any key to continue.")
-  os.pullEvent("key")
+  print("WARNING: Advanced (gold) Computer required.")
+  os.pullEventRaw("key")
 end
 
 -- ============================================================
@@ -304,10 +265,15 @@ local playerDet = findPeripheral({"playerDetector", "player_detector"})
 local envDet = findPeripheral({"environmentDetector", "environment_detector"})
 local geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
 local chatBox = findPeripheral({"chatBox", "chat_box"})
+local modem = findPeripheral({"modem"})
 
 if not playerDet then error("No Player Detector found.") end
 if not envDet then error("No Environment Detector found.") end
 if not geoScanner then error("No Geo Scanner found.") end
+
+if modem then
+  pcall(function() rednet.open(peripheral.getName(modem)) end)
+end
 
 -- ============================================================
 -- 3. DETECTION LISTS
@@ -330,15 +296,15 @@ local state = {
   animals = 0,
   sculk = 0,
   hasCatalyst = false,
-  present = {},      -- name -> enter timestamp
-  log = {},          -- array of strings, newest last
+  present = {},
+  log = {},
   activeTab = "status",
   themeName = "Sculk",
   settingsScroll = 0,
   whitelistMode = false,
   whitelistMessage = "",
   settingsMessage = "",
-  scrollOffset = 0,  -- for log tab
+  scrollOffset = 0,
   forceUpdate = false,
 
   updateStatus = "Checking...",
@@ -347,13 +313,25 @@ local state = {
   restartForUpdate = false,
 }
 
--- Forward declaration for updater
 local checkForUpdate
 
 -- ============================================================
 -- 5. LOGGING & UTILITY FUNCTIONS
 -- ============================================================
 local function timestamp() return os.date("%H:%M:%S") end
+
+local function broadcastOffsite(alertMsg)
+  if modem and rednet.isOpen() then
+    pcall(function()
+      rednet.broadcast({
+        system = "GraveSight",
+        owner = setup.owner,
+        timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+        message = alertMsg
+      }, REDNET_CHANNEL)
+    end)
+  end
+end
 
 local function addLog(line)
   local full = os.date("%Y-%m-%d %H:%M:%S") .. " | " .. line
@@ -365,25 +343,16 @@ local function addLog(line)
     f.close()
   end
   state.scrollOffset = 0
+  
+  if line:find("ALERT") or line:find("ENTER") or line:find("BLOOM") then
+    broadcastOffsite(line)
+  end
 end
 
-local function theme()
-  return UI_THEMES[UI_THEME] or UI_THEMES["Sculk"]
-end
-
-local function setThemeColors()
-  local t = theme()
-  term.setBackgroundColor(t.background)
-  term.setTextColor(t.text)
-end
-
-local function setAccent()
-  term.setTextColor(theme().accent)
-end
-
-local function setMuted()
-  term.setTextColor(theme().muted)
-end
+local function theme() return UI_THEMES[UI_THEME] or UI_THEMES["Sculk"] end
+local function setThemeColors() term.setBackgroundColor(theme().background); term.setTextColor(theme().text) end
+local function setAccent() term.setTextColor(theme().accent) end
+local function setMuted() term.setTextColor(theme().muted) end
 
 local function setTheme(name)
   if UI_THEMES[name] then
@@ -398,33 +367,19 @@ end
 -- ============================================================
 local function saveSettings()
   local data = {
-    radius = RADIUS,
-    scanRadius = SCAN_RADIUS,
-    checkInterval = CHECK_INTERVAL,
-    scanInterval = SCAN_INTERVAL,
-    updateInterval = UPDATE_INTERVAL,
-    chatAlerts = chatBox ~= nil and true or false,
-    animals = {},
-    sculk = {},
+    radius = RADIUS, scanRadius = SCAN_RADIUS, checkInterval = CHECK_INTERVAL,
+    scanInterval = SCAN_INTERVAL, updateInterval = UPDATE_INTERVAL,
+    chatAlerts = chatBox ~= nil and true or false, animals = {}, sculk = {},
   }
-
-  for name, enabled in pairs(ANIMAL_TYPES) do
-    data.animals[name] = enabled
-  end
-  for name, enabled in pairs(SCULK_NAMES) do
-    data.sculk[name] = enabled
-  end
+  for name, enabled in pairs(ANIMAL_TYPES) do data.animals[name] = enabled end
+  for name, enabled in pairs(SCULK_NAMES) do data.sculk[name] = enabled end
 
   local file = fs.open(SETTINGS_FILE, "w")
-  if file then
-    file.write(textutils.serialize(data))
-    file.close()
-  end
+  if file then file.write(textutils.serialize(data)); file.close() end
 end
 
 local function loadSettings()
   if not fs.exists(SETTINGS_FILE) then return end
-
   local file = fs.open(SETTINGS_FILE, "r")
   if not file then return end
   local raw = file.readAll()
@@ -456,48 +411,33 @@ loadSettings()
 local function loadWhitelist()
   whitelist = {}
   if not fs.exists(WHITELIST_FILE) then return end
-
   local file = fs.open(WHITELIST_FILE, "r")
   if not file then return end
-
   while true do
     local name = file.readLine()
     if not name then break end
     name = name:gsub("^%s+", ""):gsub("%s+$", "")
-    if name ~= "" then
-      whitelist[name:lower()] = name
-    end
+    if name ~= "" then whitelist[name:lower()] = name end
   end
-
   file.close()
 end
 
 local function saveWhitelist()
   local file = fs.open(WHITELIST_FILE, "w")
   if not file then return false end
-
   local names = {}
-  for _, name in pairs(whitelist) do
-    table.insert(names, name)
-  end
+  for _, name in pairs(whitelist) do table.insert(names, name) end
   table.sort(names, function(a, b) return a:lower() < b:lower() end)
-
-  for _, name in ipairs(names) do
-    file.writeLine(name)
-  end
-
+  for _, name in ipairs(names) do file.writeLine(name) end
   file.close()
   return true
 end
 
-local function isWhitelisted(name)
-  return whitelist[name:lower()] ~= nil
-end
+local function isWhitelisted(name) return whitelist[name:lower()] ~= nil end
 
 local function addToWhitelist(name)
   name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
   if name == "" then return false end
-
   whitelist[name:lower()] = name
   saveWhitelist()
   return true
@@ -507,7 +447,6 @@ local function removeFromWhitelist(name)
   if not name then return false end
   local key = name:lower()
   if not whitelist[key] then return false end
-
   whitelist[key] = nil
   saveWhitelist()
   return true
@@ -537,8 +476,8 @@ local function changeOwnerProtected()
   if not passwordCorrect(password) then
     term.setCursorPos(2, 11)
     term.setTextColor(theme().danger)
-    term.write("ACCESS DENIED")
-    sleep(1.5)
+    term.write("ACCESS DENIED - RATE LIMITED")
+    sleep(math.pow(2, failedAttempts))
     return
   end
 
@@ -660,9 +599,7 @@ local function backgroundLoop()
     if os.clock() - lastUpdateCheck >= UPDATE_INTERVAL then
       lastUpdateCheck = os.clock()
       checkForUpdate(false)
-      if state.restartForUpdate then
-        return
-      end
+      if state.restartForUpdate then return end
     end
 
     os.queueEvent("gravesight_redraw")
@@ -695,13 +632,11 @@ local function draw()
   term.setBackgroundColor(theme().background)
   term.clear()
 
-  -- Header
   clearLine(1, colors.blue)
   term.setCursorPos(2, 1)
   term.setTextColor(theme().text)
   term.write("Diyu's GraveSight v" .. VERSION)
 
-  -- Navigation Tabs
   clearLine(2)
   addButton(2, 2, " Status ", function() state.activeTab = "status" end,
     state.activeTab == "status" and theme().accent or theme().panel,
@@ -715,9 +650,6 @@ local function draw()
 
   local contentTop, contentBottom = 4, h - 2
 
-  ------------------------------------------------------------
-  -- STATUS TAB
-  ------------------------------------------------------------
   if state.activeTab == "status" then
     term.setBackgroundColor(theme().background)
     term.setTextColor(theme().text)
@@ -757,9 +689,6 @@ local function draw()
       term.write("(none)")
     end
 
-  ------------------------------------------------------------
-  -- LOG TAB
-  ------------------------------------------------------------
   elseif state.activeTab == "log" then
     term.setBackgroundColor(theme().background)
     term.setTextColor(theme().text)
@@ -785,14 +714,10 @@ local function draw()
       state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
     end)
 
-  ------------------------------------------------------------
-  -- SETTINGS TAB
-  ------------------------------------------------------------
   elseif state.activeTab == "settings" then
     term.setBackgroundColor(theme().background)
     term.setTextColor(theme().text)
 
-    -- Row 4: Owner & Themes
     term.setCursorPos(2, contentTop)
     setAccent()
     term.write("OWNER: ")
@@ -808,7 +733,6 @@ local function draw()
     addButton(43, contentTop, " A ", function() setTheme("Ancient") end)
     addButton(47, contentTop, " W ", function() setTheme("Warden") end)
 
-    -- Row 6: Player Radius & Scanner Radius
     term.setCursorPos(2, contentTop + 2)
     term.setTextColor(theme().text)
     term.write("Player Radius: " .. string.format("%-3d", RADIUS))
@@ -820,7 +744,6 @@ local function draw()
     addButton(44, contentTop + 2, " - ", function() SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, SCAN_RADIUS - 1); saveSettings() end)
     addButton(48, contentTop + 2, " + ", function() SCAN_RADIUS = math.min(32, SCAN_RADIUS + 1); saveSettings() end)
 
-    -- Row 8: Check Delays
     term.setCursorPos(2, contentTop + 4)
     term.write("Check Delay: " .. string.format("%-2d", CHECK_INTERVAL) .. "s")
     addButton(21, contentTop + 4, " - ", function() CHECK_INTERVAL = math.max(1, CHECK_INTERVAL - 1); saveSettings() end)
@@ -831,13 +754,10 @@ local function draw()
     addButton(44, contentTop + 4, " - ", function() SCAN_INTERVAL = math.max(2, SCAN_INTERVAL - 2); saveSettings() end)
     addButton(48, contentTop + 4, " + ", function() SCAN_INTERVAL = math.min(60, SCAN_INTERVAL + 2); saveSettings() end)
 
-    -- Row 11: Whitelist Controls
     term.setCursorPos(2, contentTop + 7)
     setAccent()
     term.write("WHITELIST: ")
-    addButton(14, contentTop + 7, " + ADD ", function()
-      state.whitelistMode = true
-    end)
+    addButton(14, contentTop + 7, " + ADD ", function() state.whitelistMode = true end)
 
     if state.whitelistMode then
       term.setCursorPos(23, contentTop + 7)
@@ -858,19 +778,40 @@ local function draw()
     end
   end
 
-  -- Footer Area
   clearLine(h - 1, theme().panel)
   term.setCursorPos(2, h - 1)
   term.setTextColor(theme().text)
   term.write(string.rep("-", w - 2))
   clearLine(h)
-  addButton(2, h, " Quit ", function() error("__QUIT__") end, colors.red, colors.white)
+
+  -- Password-Protected Exit Button
+  addButton(2, h, " Exit to Shell ", function()
+    term.setBackgroundColor(theme().background)
+    term.clear()
+    term.setCursorPos(2, 4)
+    term.setTextColor(theme().accent)
+    term.write("ADMIN AUTHENTICATION REQUIRED")
+
+    term.setCursorPos(2, 6)
+    term.setTextColor(theme().text)
+    term.write("Password > ")
+    local input = read("*")
+
+    if passwordCorrect(input) then
+      error("__QUIT__")
+    else
+      term.setCursorPos(2, 8)
+      term.setTextColor(theme().danger)
+      term.write("ACCESS DENIED - RATE LIMITED")
+      sleep(math.pow(2, failedAttempts))
+    end
+  end, colors.red, colors.white)
 end
 
 local function uiLoop()
   draw()
   while true do
-    local event, a, b, c = os.pullEvent()
+    local event, a, b, c = os.pullEventRaw()
     if event == "mouse_click" then
       local x, y = b, c
       for _, btn in ipairs(buttons) do
@@ -881,6 +822,8 @@ local function uiLoop()
       draw()
     elseif event == "gravesight_redraw" then
       draw()
+    elseif event == "terminate" then
+      addLog("SECURITY WARNING: Manual termination attempt blocked.")
     end
   end
 end
@@ -919,9 +862,7 @@ checkForUpdate = function(manual)
   state.updateStatus = "Checking GitHub..."
 
   local response
-  local ok = pcall(function()
-    response = http.get(UPDATE_URL)
-  end)
+  local ok = pcall(function() response = http.get(UPDATE_URL) end)
 
   if not ok or not response then
     state.updateStatus = "GitHub unavailable"
@@ -982,9 +923,7 @@ checkForUpdate = function(manual)
   if fs.exists(UPDATE_BACKUP) then fs.delete(UPDATE_BACKUP) end
 
   if fs.exists(PROGRAM_PATH) then
-    local backupOK = pcall(function()
-      fs.copy(PROGRAM_PATH, UPDATE_BACKUP)
-    end)
+    local backupOK = pcall(function() fs.copy(PROGRAM_PATH, UPDATE_BACKUP) end)
     if not backupOK or not fs.exists(UPDATE_BACKUP) then
       fs.delete(UPDATE_TEMP)
       state.updateStatus = "Backup failed"
@@ -1000,9 +939,7 @@ checkForUpdate = function(manual)
 
   if not installOK or not fs.exists(PROGRAM_PATH) then
     if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
-    if fs.exists(UPDATE_BACKUP) then
-      pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end)
-    end
+    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end) end
     state.updateStatus = "Install failed"
     addLog("Update failed: previous version restored.")
     return false
@@ -1014,9 +951,7 @@ checkForUpdate = function(manual)
 
   if not finalSource or getVersionFromSource(finalSource) ~= remoteVersion then
     if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
-    if fs.exists(UPDATE_BACKUP) then
-      pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end)
-    end
+    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end) end
     state.updateStatus = "Final verification failed"
     addLog("Update failed: installed file did not verify. Previous version restored.")
     return false
@@ -1034,6 +969,9 @@ setThemeColors()
 -- ============================================================
 -- 11. PROGRAM STARTUP
 -- ============================================================
+-- Block Ctrl+T Termination at the OS level globally
+os.pullEvent = os.pullEventRaw
+
 checkForUpdate(false)
 
 local ok, err
