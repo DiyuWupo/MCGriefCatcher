@@ -3,68 +3,130 @@
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
+local running = true
 
 -- Disable Ctrl+T termination on the handheld
 os.pullEvent = os.pullEventRaw
 
--- Find Pocket Modem
+-- Find Pocket Wireless/Ender Modem
 local modem = peripheral.find("modem")
 if not modem then
   error("Error: Ender/Wireless Pocket Computer required!")
 end
 
+-- Find optional Pocket Speaker for audio alerts
+local speaker = peripheral.find("speaker")
 rednet.open(peripheral.getName(modem))
 
 local w, h = term.getSize()
+local lastTimestamp = "N/A"
+local lastAlert = "Waiting for data..."
 
-local function drawHeader()
+local function playChime()
+  if speaker then
+    pcall(function()
+      speaker.playSound("block.note_block.chime", 1.0, 1.2)
+    end)
+  end
+end
+
+local function drawUI()
   term.setBackgroundColor(colors.black)
   term.clear()
+  
+  -- Header
   term.setCursorPos(1, 1)
   term.setBackgroundColor(colors.blue)
   term.setTextColor(colors.white)
-  term.write(" GRAVESIGHT REMOTE ")
+  -- Centers the title based on screen width
+  local title = " GRAVESIGHT REMOTE "
+  local pad = string.rep(" ", math.floor((w - #title)/2))
+  term.write(pad .. title .. string.rep(" ", math.ceil((w - #title)/2)))
   
   term.setBackgroundColor(colors.black)
   term.setCursorPos(1, 2)
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
+
+  -- Content
+  term.setCursorPos(1, 4)
+  term.setTextColor(colors.cyan)
+  print("TIME: " .. lastTimestamp)
+  
+  term.setCursorPos(1, 5)
+  term.setTextColor(colors.yellow)
+  print("ALERT:")
+  
+  term.setCursorPos(1, 6)
+  term.setTextColor(colors.white)
+  print(lastAlert)
+
+  -- Footer (Touch Buttons)
+  term.setCursorPos(1, h - 1)
+  term.setTextColor(colors.gray)
+  term.write(string.rep("-", w))
+  
+  term.setCursorPos(1, h)
+  term.setBackgroundColor(colors.red)
+  term.setTextColor(colors.white)
+  term.write(" EXIT ")
+  
+  term.setBackgroundColor(colors.black)
+  term.write("  ") -- Spacer
+  
+  term.setBackgroundColor(colors.orange)
+  term.setTextColor(colors.white)
+  term.write(" FORCE SCAN ")
 end
 
-drawHeader()
-term.setCursorPos(1, 4)
-term.setTextColor(colors.green)
-print("[ONLINE] Monitoring...")
-print("Channel: " .. REDNET_CHANNEL)
+-- Initial Draw
+drawUI()
 
-while true do
-  local event, senderID, payload, protocol = os.pullEventRaw()
+-- Main Event Loop
+while running do
+  local event, p1, p2, p3 = os.pullEventRaw()
   
-  if event == "rednet_message" and type(payload) == "table" and payload.system == "GraveSight" then
-    drawHeader()
+  -- Handle Incoming Alerts
+  if event == "rednet_message" then
+    local senderID, payload, protocol = p1, p2, p3
     
-    term.setCursorPos(1, 4)
-    term.setTextColor(colors.cyan)
-    print("TIME: " .. (payload.timestamp or os.date("%H:%M:%S")))
-    
-    term.setCursorPos(1, 6)
-    term.setTextColor(colors.yellow)
-    print("ALERT:")
-    
-    term.setCursorPos(1, 7)
-    term.setTextColor(colors.white)
-    print(payload.message or "Unknown alert")
-    
-    -- Sound chime when an alert hits
-    if computer and computer.beep then
-      computer.beep(1000, 0.2)
+    if tostring(protocol) == tostring(REDNET_CHANNEL) and type(payload) == "table" and payload.system == "GraveSight" then
+      lastTimestamp = payload.timestamp or os.date("%H:%M:%S")
+      lastAlert = payload.message or "Unknown alert"
+      
+      playChime()
+      
+      local f = fs.open(LOG_FILE, "a")
+      if f then
+        f.writeLine("[" .. lastTimestamp .. "] " .. lastAlert)
+        f.close()
+      end
+      
+      drawUI()
     end
     
-    -- Save log locally on the Pocket PC
-    local f = fs.open(LOG_FILE, "a")
-    if f then
-      f.writeLine("[" .. (payload.timestamp or os.date("%H:%M:%S")) .. "] " .. (payload.message or ""))
-      f.close()
+  -- Handle Touch Screen Clicks
+  elseif event == "mouse_click" then
+    local button, x, y = p1, p2, p3
+    
+    -- Check if click is on the bottom row
+    if y == h then
+      if x >= 1 and x <= 6 then
+        running = false -- EXIT button clicked
+      elseif x >= 9 and x <= 20 then
+        -- FORCE SCAN button clicked
+        rednet.broadcast({system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
+        lastTimestamp = os.date("%H:%M:%S")
+        lastAlert = "Manual scan command broadcasted."
+        playChime()
+        drawUI()
+      end
     end
   end
 end
+
+-- Clean Exit
+term.setBackgroundColor(colors.black)
+term.clear()
+term.setCursorPos(1,1)
+print("Remote offline.")
