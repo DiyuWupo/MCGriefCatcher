@@ -654,13 +654,13 @@ local function backgroundLoop()
   local lastUpdateCheck = os.clock()
 
   while state.running do
-    -- Non-blocking check for incoming private remote commands from Pocket Remote
+    -- Robust check for incoming private or fallback broadcast commands from Pocket Remote
     if modem and rednet.isOpen() then
       local ok, senderID, msg, protocol = pcall(function()
         return rednet.receive(REDNET_CHANNEL, 0)
       end)
       if ok and senderID and type(msg) == "table" then
-        if msg.system == "GraveSightCmd" and msg.command == "scan" then
+        if msg.system == "GraveSightCmd" and (not msg.target or msg.target == 442) and msg.command == "scan" then
           state.forceUpdate = true
           addLog("REMOTE: Manual scan requested by ID " .. tostring(senderID))
         end
