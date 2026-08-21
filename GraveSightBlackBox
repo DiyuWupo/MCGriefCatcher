@@ -2,26 +2,21 @@
 -- DIYU'S GRAVESIGHT // OFFSITE BLACK BOX RECEIVER
 -- ============================================================
 
-local REDNET_CHANNEL = 999
+local REDNET_CHANNEL = "999" -- String required for Rednet protocol filter
 local LOG_FILE = "blackbox_breaches.log"
+local ADMIN_PASSWORD = "your_password_here" -- Set a password to exit the screen
 
 -- Disable Ctrl+T termination so griefers can't stop the receiver if found
 os.pullEvent = os.pullEventRaw
 
--- Peripheral setup
-local modem = nil
-for _, side in ipairs(rs.getSides()) do
-  if peripheral.getType(side) == "modem" then
-    modem = peripheral.wrap(side)
-    break
-  end
-end
+-- Modern peripheral search
+local modem = peripheral.find("modem")
 
 if not modem then
-  error("Black Box Error: No Wireless Modem attached!")
+  error("Black Box Error: No Wireless/Ender Modem attached!")
 end
 
--- Open Rednet
+-- Open Rednet on the detected modem
 rednet.open(peripheral.getName(modem))
 
 term.setBackgroundColor(colors.black)
@@ -31,29 +26,63 @@ term.setCursorPos(1, 1)
 
 print("========================================")
 print("   GRAVESIGHT // BLACK BOX ONLINE       ")
-print("   LISTENING ON CHANNEL: " .. REDNET_CHANNEL)
+print("   LISTENING ON PROTOCOL: " .. REDNET_CHANNEL)
 print("========================================")
 term.setTextColor(colors.white)
+print("Press 'Q' to pause logging and exit.")
+print("----------------------------------------")
 
-while true do
-  local senderID, payload, protocol = rednet.receive(REDNET_CHANNEL)
-  
-  if type(payload) == "table" and payload.system == "GraveSight" then
-    local logLine = string.format("[%s] ALERT from %s: %s", 
-      payload.timestamp or os.date("%Y-%m-%d %H:%M:%S"), 
-      payload.owner or "Unknown", 
-      payload.message or "No payload"
-    )
+-- We use parallel.waitForAny to run the listener and the exit key checker at the same time
+parallel.waitForAny(
+  function()
+    while true do
+      -- Listens strictly for broadcasts using protocol "999"
+      local senderID, payload, protocol = rednet.receive(REDNET_CHANNEL)
+      
+      if type(payload) == "table" and payload.system == "GraveSight" then
+        local logLine = string.format("[%s] ALERT from %s: %s", 
+          payload.timestamp or os.date("%Y-%m-%d %H:%M:%S"), 
+          payload.owner or "Unknown", 
+          payload.message or "No payload"
+        )
 
-    -- Print to screen
-    term.setTextColor(colors.yellow)
-    print(logLine)
+        -- Print alert to terminal screen
+        term.setTextColor(colors.yellow)
+        print(logLine)
+        term.setTextColor(colors.white)
 
-    -- Save permanently to disk
-    local file = fs.open(LOG_FILE, "a")
-    if file then
-      file.writeLine(logLine)
-      file.close()
+        -- Permanently save breach event to disk
+        local file = fs.open(LOG_FILE, "a")
+        if file then
+          file.writeLine(logLine)
+          file.close()
+        end
+      end
+    end
+  end,
+
+  function()
+    while true do
+      local event, key = os.pullEvent("key")
+      -- key 16 is the 'Q' key on the keyboard
+      if key == keys.q then
+        term.setTextColor(colors.orange)
+        write("\n[EXIT INITIATED] Password: ")
+        local input = read("*")
+        
+        if input == ADMIN_PASSWORD then
+          term.setBackgroundColor(colors.black)
+          term.setTextColor(colors.white)
+          term.clear()
+          term.setCursorPos(1,1)
+          print("Black Box terminal closed. Logging suspended.")
+          return -- This breaks the parallel loop, exiting the program safely
+        else
+          term.setTextColor(colors.red)
+          print("ACCESS DENIED. Resuming logging...")
+          term.setTextColor(colors.white)
+        end
+      end
     end
   end
-end
+)
