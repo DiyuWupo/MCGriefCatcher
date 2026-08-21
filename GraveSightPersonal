@@ -1,0 +1,342 @@
+-- gravesight.lua
+-- Requires: Advanced (gold) Computer for color + mouse clicks
+-- Requires: Player Detector, Environment Detector, Geo Scanner, Chat Box (Advanced Peripherals)
+
+local YOUR_NAME = "DiyuWupo"
+local RADIUS = 50
+local SCAN_RADIUS = 16
+local MIN_SCAN_RADIUS = 8
+local LOG_FILE = "gravesight.log"
+local VERSION = "1.0.0"
+local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/gravesight.lua"
+local UPDATE_INTERVAL = 600
+local UPDATE_TEMP = ".gravesight_update.tmp"
+local UPDATE_BACKUP = ".gravesight_backup.lua"
+local PROGRAM_PATH = shell.getRunningProgram()
+local CHECK_INTERVAL = 2
+local SCAN_INTERVAL = 12
+local MAX_LOG_ENTRIES = 300
+
+if not term.isColor() then
+  print("WARNING: This needs an Advanced (gold) Computer for colors/clicks.")
+  print("It may still run, but will look wrong. Press any key to continue.")
+  os.pullEvent("key")
+end
+
+-- === Peripheral setup ===
+local function findPeripheral(possibleNames)
+  for _, name in ipairs(peripheral.getNames()) do
+    local ptype = peripheral.getType(name)
+    for _, candidate in ipairs(possibleNames) do
+      if ptype == candidate then return peripheral.wrap(name) end
+    end
+  end
+  return nil
+end
+
+local playerDet = findPeripheral({"playerDetector", "player_detector"})
+local envDet = findPeripheral({"environmentDetector", "environment_detector"})
+local geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
+local chatBox = findPeripheral({"chatBox", "chat_box"})
+
+if not playerDet then error("No Player Detector found.") end
+if not envDet then error("No Environment Detector found.") end
+if not geoScanner then error("No Geo Scanner found.") end
+
+local SCULK_NAMES = {
+  ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
+  ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true,
+  ["minecraft:sculk_vein"] = true,
+}
+local ANIMAL_TYPES = {
+  ["minecraft:cow"] = true, ["minecraft:sheep"] = true, ["minecraft:pig"] = true,
+  ["minecraft:chicken"] = true, ["minecraft:horse"] = true,
+}
+
+-- === Shared state ===
+local state = {
+  animals = 0,
+  sculk = 0,
+  hasCatalyst = false,
+  present = {},      -- name -> enter timestamp
+  log = {},          -- array of strings, newest last
+  activeTab = "status",
+  scrollOffset = 0,  -- for log tab
+  forceUpdate = false,
+
+  updateStatus = "Checking...",
+  updateAvailable = false,
+  updateVersion = nil,
+  restartForUpdate = false,
+}
+
+local function timestamp() return os.date("%H:%M:%S") end
+
+local function addLog(line)
+  local full = os.date("%Y-%m-%d %H:%M:%S") .. " | " .. line
+  table.insert(state.log, full)
+  if #state.log > MAX_LOG_ENTRIES then table.remove(state.log, 1) end
+  local f = fs.open(LOG_FILE, "a")
+  f.write(full .. "\n")
+  f.close()
+  -- auto-scroll to bottom when new entries arrive
+  state.scrollOffset = 0
+end
+
+local function countAnimals()
+  local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
+  if not ok or type(entities) ~= "table" then return nil end
+  local count = 0
+  for _, e in ipairs(entities) do
+    if ANIMAL_TYPES[e.name] then count = count + 1 end
+  end
+  return count
+end
+
+local lastWorkingRadius = SCAN_RADIUS
+local function countSculk()
+  local blocks, usedRadius = nil, SCAN_RADIUS
+  while usedRadius >= MIN_SCAN_RADIUS do
+    local ok, result = pcall(function() return geoScanner.scan(usedRadius) end)
+    if ok and type(result) == "table" then blocks = result break end
+    usedRadius = usedRadius - 8
+  end
+  if not blocks then return nil end
+  lastWorkingRadius = usedRadius
+  local count, hasCatalyst = 0, false
+  for _, b in ipairs(blocks) do
+    if SCULK_NAMES[b.name] then
+      count = count + 1
+      if b.name == "minecraft:sculk_catalyst" then hasCatalyst = true end
+    end
+  end
+  return count, hasCatalyst
+end
+
+-- === Background watcher ===
+local function backgroundLoop()
+  state.animals = countAnimals() or 0
+  local sc, cat = countSculk()
+  state.sculk, state.hasCatalyst = sc or 0, cat or false
+  addLog("Started. Animals: " .. state.animals .. " | Sculk: " .. state.sculk)
+
+  local lastScanTime = os.clock()
+  local lastUpdateCheck = os.clock()
+
+  while true do
+    local players = playerDet.getPlayersInRange(RADIUS)
+    local nowPresent = {}
+    for _, name in ipairs(players) do
+      if name ~= YOUR_NAME then
+        nowPresent[name] = true
+        if not state.present[name] then
+          state.present[name] = timestamp()
+          addLog("ENTER: " .. name)
+        end
+      end
+    end
+    for name, enterTime in pairs(state.present) do
+      if not nowPresent[name] then
+        addLog("EXIT:  " .. name .. " (since " .. enterTime .. ")")
+        state.present[name] = nil
+      end
+    end
+
+    local currentAnimals = countAnimals()
+    if currentAnimals and currentAnimals < state.animals then
+      local drop = state.animals - currentAnimals
+      local suspects = {}
+      for name, _ in pairs(state.present) do table.insert(suspects, name) end
+      local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby"
+      addLog("ALERT: Lost " .. drop .. " animal(s). Nearby: " .. suspectStr)
+      if chatBox then chatBox.sendMessage("Lost " .. drop .. " animal(s)! Nearby: " .. suspectStr, "GRAVESIGHT", "&4") end
+    end
+    if currentAnimals then state.animals = currentAnimals end
+
+    if os.clock() - lastScanTime >= SCAN_INTERVAL or state.forceUpdate then
+      lastScanTime = os.clock()
+      local newSculk, newCat = countSculk()
+      if newSculk then
+        if newSculk > state.sculk then
+          local grew = newSculk - state.sculk
+          local suspects = {}
+          for name, _ in pairs(state.present) do table.insert(suspects, name) end
+          local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby (likely catalyst spread)"
+          addLog("SCULK BLOOM: +" .. grew .. ". Nearby: " .. suspectStr)
+          if chatBox then chatBox.sendMessage("Sculk bloom +" .. grew .. "! Nearby: " .. suspectStr, "Sculk Alert", "&5") end
+        end
+        state.sculk = newSculk
+        state.hasCatalyst = newCat or false
+      end
+    end
+
+    if state.forceUpdate then
+      addLog("Manual scan triggered.")
+      state.forceUpdate = false
+    end
+
+    if os.clock() - lastUpdateCheck >= UPDATE_INTERVAL then
+      lastUpdateCheck = os.clock()
+      checkForUpdate(false)
+      if state.restartForUpdate then
+        return
+      end
+    end
+
+    os.queueEvent("gravesight_redraw")
+    sleep(CHECK_INTERVAL)
+  end
+end
+
+-- === UI drawing ===
+local w, h = term.getSize()
+local buttons = {}
+
+local function addButton(x, y, text, action, bg, fg)
+  term.setCursorPos(x, y)
+  term.setBackgroundColor(bg or colors.gray)
+  term.setTextColor(fg or colors.white)
+  term.write(text)
+  table.insert(buttons, {x1 = x, x2 = x + #text - 1, y = y, action = action})
+end
+
+local function clearLine(y, bg)
+  term.setCursorPos(1, y)
+  term.setBackgroundColor(bg or colors.black)
+  term.write(string.rep(" ", w))
+end
+
+local function draw()
+  buttons = {}
+  term.setBackgroundColor(colors.black)
+  term.clear()
+
+  -- Header
+  clearLine(1, colors.blue)
+  term.setCursorPos(2, 1)
+  term.setTextColor(colors.white)
+  term.write("GRAVESIGHT v" .. VERSION)
+
+  -- Tabs
+  clearLine(2)
+  addButton(2, 2, " Status ", function() state.activeTab = "status" end,
+    state.activeTab == "status" and colors.cyan or colors.gray,
+    state.activeTab == "status" and colors.black or colors.white)
+  addButton(11, 2, " Log ", function() state.activeTab = "log" end,
+    state.activeTab == "log" and colors.cyan or colors.gray,
+    state.activeTab == "log" and colors.black or colors.white)
+
+  -- Content area: rows 4 to h-2
+  local contentTop, contentBottom = 4, h - 2
+
+  if state.activeTab == "status" then
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.setCursorPos(2, contentTop)
+    term.write("Animals: " .. state.animals)
+    term.setCursorPos(2, contentTop + 1)
+    term.write("Sculk blocks: " .. state.sculk .. (state.hasCatalyst and " (CATALYST!)" or ""))
+
+    term.setCursorPos(2, contentTop + 2)
+    term.setTextColor(colors.lightBlue)
+    term.write("Code: v" .. VERSION .. " | " .. (state.updateStatus or "Not checked"))
+
+    addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
+
+    addButton(w - 12, 2, " Update ", function()
+      checkForUpdate(true)
+      os.queueEvent("gravesight_redraw")
+    end, state.updateAvailable and colors.orange or colors.gray)
+
+    term.setCursorPos(2, contentTop + 3)
+    term.write("Players nearby:")
+    local row = contentTop + 4
+    local any = false
+    for name, since in pairs(state.present) do
+      if row <= contentBottom then
+        term.setCursorPos(4, row)
+        term.setTextColor(colors.orange)
+        term.write(name .. " (since " .. since .. ")")
+        row = row + 1
+        any = true
+      end
+    end
+    if not any then
+      term.setCursorPos(4, row)
+      term.setTextColor(colors.gray)
+      term.write("(none)")
+    end
+  else -- log tab
+    term.setTextColor(colors.white)
+    local visibleRows = contentBottom - contentTop + 1
+    local totalLines = #state.log
+    local startIdx = math.max(1, totalLines - visibleRows + 1 - state.scrollOffset)
+    local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
+    local row = contentTop
+    for i = startIdx, endIdx do
+      term.setCursorPos(2, row)
+      local line = state.log[i]
+      if #line > w - 2 then line = line:sub(1, w - 2) end
+      term.write(line)
+      row = row + 1
+    end
+
+    -- scroll buttons
+    addButton(w - 12, 2, " Up ", function()
+      state.scrollOffset = math.min(state.scrollOffset + visibleRows, math.max(0, totalLines - visibleRows))
+    end)
+    addButton(w - 6, 2, " Down ", function()
+      state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
+    end)
+  end
+
+  -- Footer
+  clearLine(h - 1, colors.gray)
+  term.setCursorPos(2, h - 1)
+  term.setTextColor(colors.white)
+  term.write(string.rep("-", w - 2))
+  clearLine(h)
+  addButton(2, h, " Quit ", function() error("__QUIT__") end, colors.red, colors.white)
+end
+
+local function uiLoop()
+  draw()
+  while true do
+    local event, a, b, c = os.pullEvent()
+    if event == "mouse_click" then
+      local x, y = b, c
+      for _, btn in ipairs(buttons) do
+        if y == btn.y and x >= btn.x1 and x <= btn.x2 then
+          btn.action()
+        end
+      end
+      draw()
+    elseif event == "gravesight_redraw" then
+      draw()
+    end
+  end
+end
+
+checkForUpdate(false)
+
+local ok, err
+if not state.restartForUpdate then
+  ok, err = pcall(function()
+    parallel.waitForAny(backgroundLoop, uiLoop)
+  end)
+end
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.clear()
+term.setCursorPos(1, 1)
+if state.restartForUpdate then
+  print("GRAVESIGHT updated to v" .. tostring(state.updateVersion) .. "!")
+  print("Restarting...")
+  sleep(2)
+  shell.run(PROGRAM_PATH)
+elseif err == "__QUIT__" then
+  print("GRAVESIGHT stopped.")
+else
+  print("GRAVESIGHT crashed: " .. tostring(err))
+end
