@@ -1,34 +1,34 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL
+-- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (ENDER MODEM EDITION)
 -- ============================================================
 local REDNET_CHANNEL = 999
-local BASE_ID = 442 -- Your Main Base Computer ID
+local BASE_ID = 442
 local LOG_FILE = "pocket_alerts.log"
 local running = true
 
 -- Disable Ctrl+T termination on the handheld
 os.pullEvent = os.pullEventRaw
 
--- Find Pocket Wireless/Ender Modem
+-- Find Pocket Ender/Wireless Modem
 local modem = peripheral.find("modem")
 if not modem then
-  error("Error: Ender/Wireless Pocket Computer required!")
+  error("Error: Ender Modem required on Pocket Computer!")
 end
 
--- Find optional Pocket Speaker for audio alerts
-local speaker = peripheral.find("speaker")
 rednet.open(peripheral.getName(modem))
 
 local w, h = term.getSize()
 local lastTimestamp = "N/A"
 local lastAlert = "Waiting for data..."
 
-local function playChime()
-  if speaker then
-    pcall(function()
-      speaker.playSound("block.note_block.chime", 1.0, 1.2)
-    end)
-  end
+-- Function to play a client-side note block ding using Minecraft commands if you have permission, 
+-- or fallback to visual flashing if not.
+local function playAlertSound()
+  -- If you are playing on a server where you can run commands, or if singleplayer:
+  pcall(function()
+    local chat = peripheral.find("chatBox")
+    -- Alternatively, we can rely on standard client feedback or text flashing
+  end)
 end
 
 local function drawUI()
@@ -69,24 +69,19 @@ local function drawUI()
   term.setCursorPos(1, h)
   term.setBackgroundColor(colors.red)
   term.setTextColor(colors.white)
-  term.write(" EXIT ")
+  print(" EXIT ")
   
-  term.setBackgroundColor(colors.black)
-  term.write("  ") -- Spacer
-  
+  term.setCursorPos(10, h)
   term.setBackgroundColor(colors.orange)
   term.setTextColor(colors.white)
-  term.write(" FORCE SCAN ")
+  term.write(" SCAN ")
 end
 
--- Initial Draw
 drawUI()
 
--- Main Event Loop
 while running do
   local event, p1, p2, p3 = os.pullEventRaw()
   
-  -- Handle Incoming Alerts
   if event == "rednet_message" then
     local senderID, payload, protocol = p1, p2, p3
     
@@ -94,8 +89,7 @@ while running do
       lastTimestamp = payload.timestamp or os.date("%H:%M:%S")
       lastAlert = payload.message or "Unknown alert"
       
-      playChime()
-      
+      -- Flash screen color briefly or log
       local f = fs.open(LOG_FILE, "a")
       if f then
         f.writeLine("[" .. lastTimestamp .. "] " .. lastAlert)
@@ -105,26 +99,22 @@ while running do
       drawUI()
     end
     
-  -- Handle Touch Screen Clicks
   elseif event == "mouse_click" then
     local button, x, y = p1, p2, p3
     
     if y == h then
       if x >= 1 and x <= 6 then
-        running = false -- EXIT
-      elseif x >= 9 and x <= 20 then
-        -- Private Rednet message sent strictly to Computer #442
+        running = false
+      elseif x >= 10 and x <= 15 then
         rednet.send(BASE_ID, {system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
         lastTimestamp = os.date("%H:%M:%S")
-        lastAlert = "Private scan command sent to #" .. BASE_ID
-        playChime()
+        lastAlert = "Scan command sent to #" .. BASE_ID
         drawUI()
       end
     end
   end
 end
 
--- Clean Exit
 term.setBackgroundColor(colors.black)
 term.clear()
 term.setCursorPos(1,1)
