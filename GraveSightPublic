@@ -1,0 +1,995 @@
+-- ============================================================
+-- GraveSight (Public Edition v1.0.0)
+-- ============================================================
+-- Personal Minecraft grief-detection and area-monitoring system.
+--
+-- CODE MAP
+--   1. Configuration & Security Core
+--   2. Peripheral Setup
+--   3. Detection Lists
+--   4. Shared State
+--   5. Logging & Utility Functions
+--   6. Animal Detection
+--   7. Sculk Detection
+--   8. Background Monitoring
+--   9. User Interface
+--  10. Version & Auto Update
+--  11. Program Startup
+-- ============================================================
+
+-- ============================================================
+-- 1. CONFIGURATION & SECURITY CORE
+-- ============================================================
+local YOUR_NAME = "Owner"             -- Fallback placeholder (overridden on setup)
+local RADIUS = 50                    -- Player/entity monitoring radius
+local SCAN_RADIUS = 16               -- Geo Scanner radius
+local MIN_SCAN_RADIUS = 8            -- Smallest fallback scan radius
+local LOG_FILE = "gravesight.log"    -- Persistent log filename
+local CHECK_INTERVAL = 2             -- Main monitoring loop delay (seconds)
+local SCAN_INTERVAL = 12             -- Sculk scan interval (seconds)
+local MAX_LOG_ENTRIES = 300          -- Log entries kept in memory
+local SETTINGS_FILE = "gravesight_settings.cfg" -- Saved settings
+local REDNET_CHANNEL = 999           -- Offsite blackbox broadcast channel
+
+local VERSION = "1.0.0"
+local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/gravesight.lua"
+local UPDATE_INTERVAL = 600          -- GitHub check interval (seconds)
+local UPDATE_TEMP = ".gravesight_update.tmp"
+local UPDATE_BACKUP = ".gravesight_backup.lua"
+local PROGRAM_PATH = shell.getRunningProgram()
+
+local CONFIG_FILE = "gravesight_config.cfg"
+local setup = {
+  configured = false,
+  owner = "",
+  passwordHash = ""
+}
+
+local failedAttempts = 0
+
+-- Iterated Salted Hash Algorithm
+local function hashPassword(password)
+  local salt = "GraveSight_Salt_2026_Public"
+  local str = password .. salt
+  local hash = 5381
+  
+  for round = 1, 1000 do
+    for i = 1, #str do
+      hash = ((hash * 33) + string.byte(str, i)) % 2147483647
+    end
+  end
+  return tostring(hash)
+end
+
+local function loadSetup()
+  if not fs.exists(CONFIG_FILE) then return false end
+
+  local file = fs.open(CONFIG_FILE, "r")
+  if not file then return false end
+
+  local owner = file.readLine()
+  local passwordHash = file.readLine()
+  local configured = file.readLine()
+  file.close()
+
+  if owner and owner ~= "" and passwordHash and passwordHash ~= "" then
+    setup.owner = owner
+    setup.passwordHash = passwordHash
+    setup.configured = configured == "true"
+    return setup.configured
+  end
+
+  return false
+end
+
+local function saveSetup()
+  local file = fs.open(CONFIG_FILE, "w")
+  if not file then return false end
+
+  file.writeLine(setup.owner)
+  file.writeLine(setup.passwordHash)
+  file.writeLine(tostring(setup.configured))
+  file.close()
+  return true
+end
+
+local function passwordCorrect(password)
+  if hashPassword(password or "") == setup.passwordHash then
+    failedAttempts = 0
+    return true
+  else
+    failedAttempts = failedAttempts + 1
+    return false
+  end
+end
+
+local function runFirstSetup()
+  term.setBackgroundColor(colors.black)
+  term.clear()
+
+  local w, h = term.getSize()
+
+  local function center(y, message, color)
+    term.setCursorPos(math.max(1, math.floor((w - #message) / 2) + 1), y)
+    term.setTextColor(color or colors.white)
+    term.write(message)
+  end
+
+  local function drawHeader()
+    term.setBackgroundColor(colors.black)
+    term.clear()
+    center(2, "========================================", colors.gray)
+    center(3, "        GRAVESIGHT // CORE             ", colors.cyan)
+    center(4, "========================================", colors.gray)
+  end
+
+  drawHeader()
+  center(7, "[ INITIALIZING WARDEN PROTOCOLS ]", colors.green)
+  sleep(0.4)
+
+  local barWidth = 20
+  local startX = math.floor((w - barWidth) / 2) + 1
+  for i = 1, barWidth do
+    term.setCursorPos(startX + i - 1, 9)
+    term.setBackgroundColor(colors.cyan)
+    term.write(" ")
+    sleep(0.03)
+  end
+  term.setBackgroundColor(colors.black)
+  sleep(0.3)
+
+  drawHeader()
+  term.setCursorPos(3, 7)
+  term.setTextColor(colors.cyan)
+  term.write("STEP 1: OWNER USERNAME")
+  
+  term.setCursorPos(3, 9)
+  term.setTextColor(colors.white)
+  term.write("> ")
+  term.setTextColor(colors.lightBlue)
+  local owner = read()
+
+  while not owner or owner:gsub("%s+", "") == "" do
+    term.setCursorPos(3, 11)
+    term.setTextColor(colors.orange)
+    term.write("Username cannot be blank.")
+    term.setCursorPos(5, 9)
+    term.write(string.rep(" ", w - 6))
+    term.setCursorPos(5, 9)
+    term.setTextColor(colors.lightBlue)
+    owner = read()
+  end
+  owner = owner:gsub("%s+", "")
+
+  drawHeader()
+  term.setCursorPos(3, 7)
+  term.setTextColor(colors.cyan)
+  term.write("STEP 2: SET ADMIN PASSWORD")
+
+  term.setCursorPos(3, 9)
+  term.setTextColor(colors.white)
+  term.write("> ")
+  term.setTextColor(colors.lightBlue)
+  local password = read("*")
+
+  while not password or password == "" do
+    term.setCursorPos(3, 11)
+    term.setTextColor(colors.orange)
+    term.write("Password cannot be blank.")
+    term.setCursorPos(5, 9)
+    term.write(string.rep(" ", w - 6))
+    term.setCursorPos(5, 9)
+    term.setTextColor(colors.lightBlue)
+    password = read("*")
+  end
+
+  term.setCursorPos(3, 13)
+  term.setTextColor(colors.cyan)
+  term.write("STEP 3: CONFIRM PASSWORD")
+
+  term.setCursorPos(3, 15)
+  term.setTextColor(colors.white)
+  term.write("> ")
+  term.setTextColor(colors.lightBlue)
+  local confirm = read("*")
+
+  while confirm ~= password do
+    term.setCursorPos(3, 17)
+    term.setTextColor(colors.red)
+    term.write("Passwords do not match! Try again.")
+    
+    term.setCursorPos(5, 15)
+    term.write(string.rep(" ", w - 6))
+    term.setCursorPos(5, 15)
+    term.setTextColor(colors.lightBlue)
+    confirm = read("*")
+  end
+
+  setup.owner = owner
+  setup.passwordHash = hashPassword(password)
+  setup.configured = true
+  saveSetup()
+
+  term.setBackgroundColor(colors.black)
+  term.clear()
+  center(6, "========================================", colors.cyan)
+  center(8, "[ WARDEN CORE ONLINE ]", colors.green)
+  center(10, "Owner Registered: " .. setup.owner, colors.white)
+  center(12, "Initialization Complete.", colors.lightGray)
+  center(14, "========================================", colors.cyan)
+  sleep(2)
+end
+
+loadSetup()
+if not setup.configured then
+  runFirstSetup()
+end
+
+YOUR_NAME = setup.owner
+
+local WHITELIST_FILE = "gravesight_whitelist.cfg"
+local whitelist = {}
+
+-- ============================================================
+-- UI COLORS
+-- ============================================================
+local UI_THEMES = {
+  ["Sculk"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.cyan, selected = colors.blue, warning = colors.orange, danger = colors.red },
+  ["Deep"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.blue, selected = colors.cyan, warning = colors.orange, danger = colors.red },
+  ["Ancient"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.purple, selected = colors.magenta, warning = colors.orange, danger = colors.red },
+  ["Warden"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.green, selected = colors.lime, warning = colors.orange, danger = colors.red }
+}
+
+local UI_THEME = "Sculk"
+
+if not term.isColor() then
+  print("WARNING: Advanced (gold) Computer required.")
+  os.pullEventRaw("key")
+end
+
+-- ============================================================
+-- 2. PERIPHERAL SETUP
+-- ============================================================
+local function findPeripheral(possibleNames)
+  for _, name in ipairs(peripheral.getNames()) do
+    local ptype = peripheral.getType(name)
+    for _, candidate in ipairs(possibleNames) do
+      if ptype == candidate then return peripheral.wrap(name) end
+    end
+  end
+  return nil
+end
+
+local playerDet = findPeripheral({"playerDetector", "player_detector"})
+local envDet = findPeripheral({"environmentDetector", "environment_detector"})
+local geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
+local chatBox = findPeripheral({"chatBox", "chat_box"})
+local modem = findPeripheral({"modem"})
+
+if not playerDet then error("No Player Detector found.") end
+if not envDet then error("No Environment Detector found.") end
+if not geoScanner then error("No Geo Scanner found.") end
+
+if modem then
+  pcall(function() rednet.open(peripheral.getName(modem)) end)
+end
+
+-- ============================================================
+-- 3. DETECTION LISTS
+-- ============================================================
+local SCULK_NAMES = {
+  ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
+  ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true,
+  ["minecraft:sculk_vein"] = true,
+}
+
+local ANIMAL_TYPES = {
+  ["minecraft:cow"] = true, ["minecraft:sheep"] = true, ["minecraft:pig"] = true,
+  ["minecraft:chicken"] = true, ["minecraft:horse"] = true,
+}
+
+-- ============================================================
+-- 4. SHARED STATE
+-- ============================================================
+local state = {
+  animals = 0,
+  sculk = 0,
+  hasCatalyst = false,
+  present = {},
+  log = {},
+  activeTab = "status",
+  themeName = "Sculk",
+  settingsScroll = 0,
+  whitelistMode = false,
+  whitelistMessage = "",
+  settingsMessage = "",
+  scrollOffset = 0,
+  forceUpdate = false,
+
+  updateStatus = "Checking...",
+  updateAvailable = false,
+  updateVersion = nil,
+  restartForUpdate = false,
+}
+
+local checkForUpdate
+
+-- ============================================================
+-- 5. LOGGING & UTILITY FUNCTIONS
+-- ============================================================
+local function timestamp() return os.date("%H:%M:%S") end
+
+local function broadcastOffsite(alertMsg)
+  if modem and rednet.isOpen() then
+    pcall(function()
+      rednet.broadcast({
+        system = "GraveSight",
+        owner = setup.owner,
+        timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+        message = alertMsg
+      }, REDNET_CHANNEL)
+    end)
+  end
+end
+
+local function addLog(line)
+  local full = os.date("%Y-%m-%d %H:%M:%S") .. " | " .. line
+  table.insert(state.log, full)
+  if #state.log > MAX_LOG_ENTRIES then table.remove(state.log, 1) end
+  local f = fs.open(LOG_FILE, "a")
+  if f then
+    f.write(full .. "\n")
+    f.close()
+  end
+  state.scrollOffset = 0
+  
+  if line:find("ALERT") or line:find("ENTER") or line:find("BLOOM") then
+    broadcastOffsite(line)
+  end
+end
+
+local function theme() return UI_THEMES[UI_THEME] or UI_THEMES["Sculk"] end
+local function setThemeColors() term.setBackgroundColor(theme().background); term.setTextColor(theme().text) end
+local function setAccent() term.setTextColor(theme().accent) end
+local function setMuted() term.setTextColor(theme().muted) end
+
+local function setTheme(name)
+  if UI_THEMES[name] then
+    UI_THEME = name
+    state.themeName = name
+    setThemeColors()
+  end
+end
+
+-- ============================================================
+-- SETTINGS & WHITELIST STORAGE
+-- ============================================================
+local function saveSettings()
+  local data = {
+    radius = RADIUS, scanRadius = SCAN_RADIUS, checkInterval = CHECK_INTERVAL,
+    scanInterval = SCAN_INTERVAL, updateInterval = UPDATE_INTERVAL,
+    chatAlerts = chatBox ~= nil and true or false, animals = {}, sculk = {},
+  }
+  for name, enabled in pairs(ANIMAL_TYPES) do data.animals[name] = enabled end
+  for name, enabled in pairs(SCULK_NAMES) do data.sculk[name] = enabled end
+
+  local file = fs.open(SETTINGS_FILE, "w")
+  if file then file.write(textutils.serialize(data)); file.close() end
+end
+
+local function loadSettings()
+  if not fs.exists(SETTINGS_FILE) then return end
+  local file = fs.open(SETTINGS_FILE, "r")
+  if not file then return end
+  local raw = file.readAll()
+  file.close()
+
+  local ok, data = pcall(textutils.unserialize, raw)
+  if not ok or type(data) ~= "table" then return end
+
+  if type(data.radius) == "number" then RADIUS = math.max(4, math.min(128, data.radius)) end
+  if type(data.scanRadius) == "number" then SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, math.min(32, data.scanRadius)) end
+  if type(data.checkInterval) == "number" then CHECK_INTERVAL = math.max(1, math.min(30, data.checkInterval)) end
+  if type(data.scanInterval) == "number" then SCAN_INTERVAL = math.max(2, math.min(60, data.scanInterval)) end
+  if type(data.updateInterval) == "number" then UPDATE_INTERVAL = math.max(60, math.min(3600, data.updateInterval)) end
+
+  if type(data.animals) == "table" then
+    for name in pairs(ANIMAL_TYPES) do
+      if data.animals[name] ~= nil then ANIMAL_TYPES[name] = data.animals[name] == true end
+    end
+  end
+  if type(data.sculk) == "table" then
+    for name in pairs(SCULK_NAMES) do
+      if data.sculk[name] ~= nil then SCULK_NAMES[name] = data.sculk[name] == true end
+    end
+  end
+end
+
+loadSettings()
+
+local function loadWhitelist()
+  whitelist = {}
+  if not fs.exists(WHITELIST_FILE) then return end
+  local file = fs.open(WHITELIST_FILE, "r")
+  if not file then return end
+  while true do
+    local name = file.readLine()
+    if not name then break end
+    name = name:gsub("^%s+", ""):gsub("%s+$", "")
+    if name ~= "" then whitelist[name:lower()] = name end
+  end
+  file.close()
+end
+
+local function saveWhitelist()
+  local file = fs.open(WHITELIST_FILE, "w")
+  if not file then return false end
+  local names = {}
+  for _, name in pairs(whitelist) do table.insert(names, name) end
+  table.sort(names, function(a, b) return a:lower() < b:lower() end)
+  for _, name in ipairs(names) do file.writeLine(name) end
+  file.close()
+  return true
+end
+
+local function isWhitelisted(name) return whitelist[name:lower()] ~= nil end
+
+local function addToWhitelist(name)
+  name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if name == "" then return false end
+  whitelist[name:lower()] = name
+  saveWhitelist()
+  return true
+end
+
+local function removeFromWhitelist(name)
+  if not name then return false end
+  local key = name:lower()
+  if not whitelist[key] then return false end
+  whitelist[key] = nil
+  saveWhitelist()
+  return true
+end
+
+loadWhitelist()
+
+local function changeOwnerProtected()
+  term.setBackgroundColor(theme().background)
+  term.clear()
+  term.setCursorPos(2, 4)
+  term.setTextColor(theme().accent)
+  term.write("OWNER SECURITY")
+
+  term.setCursorPos(2, 6)
+  term.setTextColor(theme().muted)
+  term.write("Current owner: " .. setup.owner)
+
+  term.setCursorPos(2, 8)
+  term.setTextColor(theme().accent)
+  term.write("ADMIN PASSWORD")
+  term.setCursorPos(2, 9)
+  term.setTextColor(theme().text)
+  term.write("> ")
+  local password = read("*")
+
+  if not passwordCorrect(password) then
+    term.setCursorPos(2, 11)
+    term.setTextColor(theme().danger)
+    term.write("ACCESS DENIED - RATE LIMITED")
+    sleep(math.pow(2, failedAttempts))
+    return
+  end
+
+  term.setCursorPos(2, 11)
+  term.setTextColor(theme().accent)
+  term.write("NEW OWNER USERNAME")
+  term.setCursorPos(2, 12)
+  term.setTextColor(theme().text)
+  term.write("> ")
+  local newOwner = read()
+
+  if newOwner and newOwner ~= "" then
+    setup.owner = newOwner
+    YOUR_NAME = newOwner
+    saveSetup()
+    addLog("Owner changed to " .. newOwner)
+  end
+end
+
+-- ============================================================
+-- 6. ANIMAL DETECTION
+-- ============================================================
+local function countAnimals()
+  local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
+  if not ok or type(entities) ~= "table" then return nil end
+  local count = 0
+  for _, e in ipairs(entities) do
+    if ANIMAL_TYPES[e.name] then count = count + 1 end
+  end
+  return count
+end
+
+-- ============================================================
+-- 7. SCULK DETECTION
+-- ============================================================
+local function countSculk()
+  local blocks, usedRadius = nil, SCAN_RADIUS
+  while usedRadius >= MIN_SCAN_RADIUS do
+    local ok, result = pcall(function() return geoScanner.scan(usedRadius) end)
+    if ok and type(result) == "table" then blocks = result break end
+    usedRadius = usedRadius - 8
+  end
+  if not blocks then return nil end
+
+  local count, hasCatalyst = 0, false
+  for _, b in ipairs(blocks) do
+    if SCULK_NAMES[b.name] then
+      count = count + 1
+      if b.name == "minecraft:sculk_catalyst" then hasCatalyst = true end
+    end
+  end
+  return count, hasCatalyst
+end
+
+-- ============================================================
+-- 8. BACKGROUND MONITORING
+-- ============================================================
+local function backgroundLoop()
+  state.animals = countAnimals() or 0
+  local sc, cat = countSculk()
+  state.sculk, state.hasCatalyst = sc or 0, cat or false
+  addLog("Started. Animals: " .. state.animals .. " | Sculk: " .. state.sculk)
+
+  local lastScanTime = os.clock()
+  local lastUpdateCheck = os.clock()
+
+  while true do
+    local players = playerDet.getPlayersInRange(RADIUS)
+    local nowPresent = {}
+    for _, name in ipairs(players) do
+      if name ~= YOUR_NAME then
+        nowPresent[name] = true
+        if not state.present[name] then
+          state.present[name] = timestamp()
+          addLog("ENTER: " .. name)
+        end
+      end
+    end
+    for name, enterTime in pairs(state.present) do
+      if not nowPresent[name] then
+        addLog("EXIT:  " .. name .. " (since " .. enterTime .. ")")
+        state.present[name] = nil
+      end
+    end
+
+    local currentAnimals = countAnimals()
+    if currentAnimals and currentAnimals < state.animals then
+      local drop = state.animals - currentAnimals
+      local suspects = {}
+      for name, _ in pairs(state.present) do table.insert(suspects, name) end
+      local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby"
+      addLog("ALERT: Lost " .. drop .. " animal(s). Nearby: " .. suspectStr)
+      if chatBox then chatBox.sendMessage("Lost " .. drop .. " animal(s)! Nearby: " .. suspectStr, "GRAVESIGHT", "&4") end
+    end
+    if currentAnimals then state.animals = currentAnimals end
+
+    if os.clock() - lastScanTime >= SCAN_INTERVAL or state.forceUpdate then
+      lastScanTime = os.clock()
+      local newSculk, newCat = countSculk()
+      if newSculk then
+        if newSculk > state.sculk then
+          local grew = newSculk - state.sculk
+          local suspects = {}
+          for name, _ in pairs(state.present) do table.insert(suspects, name) end
+          local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby (likely catalyst spread)"
+          addLog("SCULK BLOOM: +" .. grew .. ". Nearby: " .. suspectStr)
+          if chatBox then chatBox.sendMessage("Sculk bloom +" .. grew .. "! Nearby: " .. suspectStr, "Sculk Alert", "&5") end
+        end
+        state.sculk = newSculk
+        state.hasCatalyst = newCat or false
+      end
+    end
+
+    if state.forceUpdate then
+      addLog("Manual scan triggered.")
+      state.forceUpdate = false
+    end
+
+    if os.clock() - lastUpdateCheck >= UPDATE_INTERVAL then
+      lastUpdateCheck = os.clock()
+      checkForUpdate(false)
+      if state.restartForUpdate then return end
+    end
+
+    os.queueEvent("gravesight_redraw")
+    sleep(CHECK_INTERVAL)
+  end
+end
+
+-- ============================================================
+-- 9. USER INTERFACE
+-- ============================================================
+local w, h = term.getSize()
+local buttons = {}
+
+local function addButton(x, y, text, action, bg, fg)
+  term.setCursorPos(x, y)
+  term.setBackgroundColor(bg or theme().panel)
+  term.setTextColor(fg or colors.white)
+  term.write(text)
+  table.insert(buttons, {x1 = x, x2 = x + #text - 1, y = y, action = action})
+end
+
+local function clearLine(y, bg)
+  term.setCursorPos(1, y)
+  term.setBackgroundColor(bg or colors.black)
+  term.write(string.rep(" ", w))
+end
+
+local function draw()
+  buttons = {}
+  term.setBackgroundColor(theme().background)
+  term.clear()
+
+  clearLine(1, colors.blue)
+  term.setCursorPos(2, 1)
+  term.setTextColor(theme().text)
+  term.write("GraveSight v" .. VERSION)
+
+  clearLine(2)
+  addButton(2, 2, " Status ", function() state.activeTab = "status" end,
+    state.activeTab == "status" and theme().accent or theme().panel,
+    state.activeTab == "status" and colors.black or colors.white)
+  addButton(11, 2, " Log ", function() state.activeTab = "log" end,
+    state.activeTab == "log" and theme().accent or theme().panel,
+    state.activeTab == "log" and colors.black or colors.white)
+  addButton(18, 2, " Settings ", function() state.activeTab = "settings" end,
+    state.activeTab == "settings" and theme().accent or theme().panel,
+    state.activeTab == "settings" and colors.black or colors.white)
+
+  local contentTop, contentBottom = 4, h - 2
+
+  if state.activeTab == "status" then
+    term.setBackgroundColor(theme().background)
+    term.setTextColor(theme().text)
+    term.setCursorPos(2, contentTop)
+    term.write("Animals: " .. state.animals)
+    term.setCursorPos(2, contentTop + 1)
+    term.write("Sculk blocks: " .. state.sculk .. (state.hasCatalyst and " (CATALYST!)" or ""))
+
+    term.setCursorPos(2, contentTop + 2)
+    term.setTextColor(colors.lightBlue)
+    term.write("Code: v" .. VERSION .. " | " .. (state.updateStatus or "Not checked"))
+
+    addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
+
+    addButton(w - 12, 2, " Update ", function()
+      checkForUpdate(true)
+      os.queueEvent("gravesight_redraw")
+    end, state.updateAvailable and colors.orange or theme().panel)
+
+    term.setCursorPos(2, contentTop + 3)
+    term.write("Players nearby:")
+    local row = contentTop + 4
+    local any = false
+    for name, since in pairs(state.present) do
+      if row <= contentBottom then
+        term.setCursorPos(4, row)
+        term.setBackgroundColor(theme().background)
+        term.setTextColor(theme().text)
+        term.write(name .. " (since " .. since .. ")" .. (isWhitelisted(name) and " [WHITELISTED]" or ""))
+        row = row + 1
+        any = true
+      end
+    end
+    if not any then
+      term.setCursorPos(4, row)
+      term.setTextColor(theme().panel)
+      term.write("(none)")
+    end
+
+  elseif state.activeTab == "log" then
+    term.setBackgroundColor(theme().background)
+    term.setTextColor(theme().text)
+    local visibleRows = contentBottom - contentTop + 1
+    local totalLines = #state.log
+    local startIdx = math.max(1, totalLines - visibleRows + 1 - state.scrollOffset)
+    local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
+    local row = contentTop
+    for i = startIdx, endIdx do
+      term.setBackgroundColor(theme().background)
+      term.setTextColor(theme().text)
+      term.setCursorPos(2, row)
+      local line = state.log[i]
+      if #line > w - 2 then line = line:sub(1, w - 2) end
+      term.write(line)
+      row = row + 1
+    end
+
+    addButton(w - 12, 2, " Up ", function()
+      state.scrollOffset = math.min(state.scrollOffset + visibleRows, math.max(0, totalLines - visibleRows))
+    end)
+    addButton(w - 6, 2, " Down ", function()
+      state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
+    end)
+
+  elseif state.activeTab == "settings" then
+    term.setBackgroundColor(theme().background)
+    term.setTextColor(theme().text)
+
+    term.setCursorPos(2, contentTop)
+    setAccent()
+    term.write("OWNER: ")
+    setMuted()
+    term.write(setup.owner .. " ")
+    addButton(18, contentTop, " CHANGE ", function() changeOwnerProtected() end)
+
+    term.setCursorPos(28, contentTop)
+    setAccent()
+    term.write("THEME: ")
+    addButton(35, contentTop, " S ", function() setTheme("Sculk") end)
+    addButton(39, contentTop, " D ", function() setTheme("Deep") end)
+    addButton(43, contentTop, " A ", function() setTheme("Ancient") end)
+    addButton(47, contentTop, " W ", function() setTheme("Warden") end)
+
+    term.setCursorPos(2, contentTop + 2)
+    term.setTextColor(theme().text)
+    term.write("Player Radius: " .. string.format("%-3d", RADIUS))
+    addButton(21, contentTop + 2, " - ", function() RADIUS = math.max(4, RADIUS - 2); saveSettings() end)
+    addButton(25, contentTop + 2, " + ", function() RADIUS = math.min(128, RADIUS + 2); saveSettings() end)
+
+    term.setCursorPos(30, contentTop + 2)
+    term.write("Geo Radius: " .. string.format("%-2d", SCAN_RADIUS))
+    addButton(44, contentTop + 2, " - ", function() SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, SCAN_RADIUS - 1); saveSettings() end)
+    addButton(48, contentTop + 2, " + ", function() SCAN_RADIUS = math.min(32, SCAN_RADIUS + 1); saveSettings() end)
+
+    term.setCursorPos(2, contentTop + 4)
+    term.write("Check Delay: " .. string.format("%-2d", CHECK_INTERVAL) .. "s")
+    addButton(21, contentTop + 4, " - ", function() CHECK_INTERVAL = math.max(1, CHECK_INTERVAL - 1); saveSettings() end)
+    addButton(25, contentTop + 4, " + ", function() CHECK_INTERVAL = math.min(30, CHECK_INTERVAL + 1); saveSettings() end)
+
+    term.setCursorPos(30, contentTop + 4)
+    term.write("Sculk Scan: " .. string.format("%-2d", SCAN_INTERVAL) .. "s")
+    addButton(44, contentTop + 4, " - ", function() SCAN_INTERVAL = math.max(2, SCAN_INTERVAL - 2); saveSettings() end)
+    addButton(48, contentTop + 4, " + ", function() SCAN_INTERVAL = math.min(60, SCAN_INTERVAL + 2); saveSettings() end)
+
+    term.setCursorPos(2, contentTop + 7)
+    setAccent()
+    term.write("WHITELIST: ")
+    addButton(14, contentTop + 7, " + ADD ", function() state.whitelistMode = true end)
+
+    if state.whitelistMode then
+      term.setCursorPos(23, contentTop + 7)
+      term.setTextColor(colors.yellow)
+      term.write("Type Name & Enter: ")
+      local name = read()
+      if name and name ~= "" then
+        addToWhitelist(name)
+        state.settingsMessage = "Added " .. name
+      end
+      state.whitelistMode = false
+    end
+
+    if state.settingsMessage ~= "" then
+      term.setCursorPos(2, contentBottom)
+      term.setTextColor(colors.lightBlue)
+      term.write(state.settingsMessage:sub(1, math.max(1, w - 2)))
+    end
+  end
+
+  clearLine(h - 1, theme().panel)
+  term.setCursorPos(2, h - 1)
+  term.setTextColor(theme().text)
+  term.write(string.rep("-", w - 2))
+  clearLine(h)
+
+  addButton(2, h, " Exit to Shell ", function()
+    term.setBackgroundColor(theme().background)
+    term.clear()
+    term.setCursorPos(2, 4)
+    term.setTextColor(theme().accent)
+    term.write("ADMIN AUTHENTICATION REQUIRED")
+
+    term.setCursorPos(2, 6)
+    term.setTextColor(theme().text)
+    term.write("Password > ")
+    local input = read("*")
+
+    if passwordCorrect(input) then
+      error("__QUIT__")
+    else
+      term.setCursorPos(2, 8)
+      term.setTextColor(theme().danger)
+      term.write("ACCESS DENIED - RATE LIMITED")
+      sleep(math.pow(2, failedAttempts))
+    end
+  end, colors.red, colors.white)
+end
+
+local function uiLoop()
+  draw()
+  while true do
+    local event, a, b, c = os.pullEventRaw()
+    if event == "mouse_click" then
+      local x, y = b, c
+      for _, btn in ipairs(buttons) do
+        if y == btn.y and x >= btn.x1 and x <= btn.x2 then
+          btn.action()
+        end
+      end
+      draw()
+    elseif event == "gravesight_redraw" then
+      draw()
+    elseif event == "terminate" then
+      addLog("SECURITY WARNING: Manual termination attempt blocked.")
+    end
+  end
+end
+
+-- ============================================================
+-- 10. VERSION & AUTO UPDATE
+-- ============================================================
+local function parseVersion(version)
+  if type(version) ~= "string" then return nil end
+  local a, b, c = version:match("^(%d+)%.(%d+)%.(%d+)$")
+  if not a then return nil end
+  return tonumber(a), tonumber(b), tonumber(c)
+end
+
+local function isVersionNewer(remote, localVersion)
+  local ra, rb, rc = parseVersion(remote)
+  local la, lb, lc = parseVersion(localVersion)
+  if not ra or not la then return false end
+  if ra ~= la then return ra > la end
+  if rb ~= lb then return rb > lb end
+  return rc > lc
+end
+
+local function getVersionFromSource(source)
+  if type(source) ~= "string" then return nil end
+  return source:match('local%s+VERSION%s*=%s*["\']([^"\']+)["\']')
+end
+
+checkForUpdate = function(manual)
+  if not http then
+    state.updateStatus = "HTTP unavailable"
+    if manual then addLog("Update check skipped: HTTP unavailable.") end
+    return false
+  end
+
+  state.updateStatus = "Checking GitHub..."
+
+  local response
+  local ok = pcall(function() response = http.get(UPDATE_URL) end)
+
+  if not ok or not response then
+    state.updateStatus = "GitHub unavailable"
+    if manual then addLog("Update check failed: GitHub unavailable.") end
+    return false
+  end
+
+  local source = response.readAll()
+  response.close()
+
+  local remoteVersion = getVersionFromSource(source)
+  if not remoteVersion then
+    state.updateStatus = "Invalid update"
+    if manual then addLog("Update rejected: no valid VERSION found.") end
+    return false
+  end
+
+  state.updateVersion = remoteVersion
+
+  if not isVersionNewer(remoteVersion, VERSION) then
+    state.updateAvailable = false
+    state.updateStatus = "Up to date (" .. VERSION .. ")"
+    if manual then addLog("Update check complete: already up to date.") end
+    return false
+  end
+
+  state.updateAvailable = true
+  state.updateStatus = "Update available: " .. remoteVersion
+  addLog("New GraveSight version found: " .. remoteVersion)
+
+  local temp = fs.open(UPDATE_TEMP, "w")
+  if not temp then
+    state.updateStatus = "Temp file failed"
+    addLog("Update failed: could not create temporary file.")
+    return false
+  end
+  temp.write(source)
+  temp.close()
+
+  local verify = fs.open(UPDATE_TEMP, "r")
+  if not verify then
+    state.updateStatus = "Verification failed"
+    if fs.exists(UPDATE_TEMP) then fs.delete(UPDATE_TEMP) end
+    addLog("Update failed: could not verify download.")
+    return false
+  end
+
+  local verifiedSource = verify.readAll()
+  verify.close()
+
+  if getVersionFromSource(verifiedSource) ~= remoteVersion then
+    fs.delete(UPDATE_TEMP)
+    state.updateStatus = "Verification failed"
+    addLog("Update rejected: downloaded file failed verification.")
+    return false
+  end
+
+  if fs.exists(UPDATE_BACKUP) then fs.delete(UPDATE_BACKUP) end
+
+  if fs.exists(PROGRAM_PATH) then
+    local backupOK = pcall(function() fs.copy(PROGRAM_PATH, UPDATE_BACKUP) end)
+    if not backupOK or not fs.exists(UPDATE_BACKUP) then
+      fs.delete(UPDATE_TEMP)
+      state.updateStatus = "Backup failed"
+      addLog("Update failed: could not create backup.")
+      return false
+    end
+  end
+
+  local installOK = pcall(function()
+    if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
+    fs.move(UPDATE_TEMP, PROGRAM_PATH)
+  end)
+
+  if not installOK or not fs.exists(PROGRAM_PATH) then
+    if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
+    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end) end
+    state.updateStatus = "Install failed"
+    addLog("Update failed: previous version restored.")
+    return false
+  end
+
+  local final = fs.open(PROGRAM_PATH, "r")
+  local finalSource = final and final.readAll() or nil
+  if final then final.close() end
+
+  if not finalSource or getVersionFromSource(finalSource) ~= remoteVersion then
+    if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
+    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end) end
+    state.updateStatus = "Final verification failed"
+    addLog("Update failed: installed file did not verify. Previous version restored.")
+    return false
+  end
+
+  state.updateAvailable = false
+  state.updateStatus = "Updated to " .. remoteVersion
+  state.restartForUpdate = true
+  addLog("Update installed: " .. VERSION .. " -> " .. remoteVersion)
+  return true
+end
+
+setThemeColors()
+
+-- ============================================================
+-- 11. PROGRAM STARTUP
+-- ============================================================
+os.pullEvent = os.pullEventRaw
+
+checkForUpdate(false)
+
+local ok, err
+if not state.restartForUpdate then
+  ok, err = pcall(function()
+    parallel.waitForAny(backgroundLoop, uiLoop)
+  end)
+end
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.clear()
+term.setCursorPos(1, 1)
+
+if state.restartForUpdate then
+  print("GRAVESIGHT updated to v" .. tostring(state.updateVersion) .. "!")
+  print("Restarting...")
+  sleep(2)
+  shell.run(PROGRAM_PATH)
+elseif err == "__QUIT__" then
+  print("GRAVESIGHT stopped.")
+else
+  print("GRAVESIGHT crashed: " .. tostring(err))
+end
