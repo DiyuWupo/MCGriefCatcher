@@ -1,15 +1,64 @@
 -- pen_watch_ui.lua
+-- GriefCatcher / Pen Watch
+-- Personal Version
+--
 -- Requires: Advanced (gold) Computer for color + mouse clicks
--- Requires: Player Detector, Environment Detector, Geo Scanner, Chat Box (Advanced Peripherals)
+-- Requires: Player Detector, Environment Detector, Geo Scanner, Chat Box
+--           (Advanced Peripherals)
+--
+-- Features:
+--   * Player detection
+--   * Animal loss detection
+--   * Sculk detection
+--   * Sculk catalyst detection
+--   * Chat alerts
+--   * Persistent log
+--   * Automatic GitHub code updates
+--   * Manual update button
+--
+-- ============================================================
+-- VERSION / AUTO UPDATE
+-- ============================================================
+
+local VERSION = "1.0.0"
+
+local UPDATE_URL =
+  "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/GriefCatcherPersonal"
+
+-- Check GitHub every 10 minutes.
+local UPDATE_INTERVAL = 600
+
+-- The name of this program on the computer.
+local PROGRAM_PATH = shell.getRunningProgram()
+
+-- Temporary download file.
+local UPDATE_TEMP = ".penwatch_update.tmp"
+
+-- Backup of the previous version.
+local UPDATE_BACKUP = ".penwatch_backup.lua"
+
+
+-- ============================================================
+-- SETTINGS
+-- ============================================================
 
 local YOUR_NAME = "DiyuWupo"
+
 local RADIUS = 50
 local SCAN_RADIUS = 16
 local MIN_SCAN_RADIUS = 8
+
 local LOG_FILE = "penwatch.log"
+
 local CHECK_INTERVAL = 2
 local SCAN_INTERVAL = 12
+
 local MAX_LOG_ENTRIES = 300
+
+
+-- ============================================================
+-- COMPUTER CHECK
+-- ============================================================
 
 if not term.isColor() then
   print("WARNING: This needs an Advanced (gold) Computer for colors/clicks.")
@@ -17,286 +66,1474 @@ if not term.isColor() then
   os.pullEvent("key")
 end
 
--- === Peripheral setup ===
+
+-- ============================================================
+-- PERIPHERAL SETUP
+-- ============================================================
+
 local function findPeripheral(possibleNames)
   for _, name in ipairs(peripheral.getNames()) do
     local ptype = peripheral.getType(name)
+
     for _, candidate in ipairs(possibleNames) do
-      if ptype == candidate then return peripheral.wrap(name) end
+      if ptype == candidate then
+        return peripheral.wrap(name)
+      end
     end
   end
+
   return nil
 end
 
-local playerDet = findPeripheral({"playerDetector", "player_detector"})
-local envDet = findPeripheral({"environmentDetector", "environment_detector"})
-local geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
-local chatBox = findPeripheral({"chatBox", "chat_box"})
 
-if not playerDet then error("No Player Detector found.") end
-if not envDet then error("No Environment Detector found.") end
-if not geoScanner then error("No Geo Scanner found.") end
+local playerDet = findPeripheral({
+  "playerDetector",
+  "player_detector"
+})
+
+local envDet = findPeripheral({
+  "environmentDetector",
+  "environment_detector"
+})
+
+local geoScanner = findPeripheral({
+  "geoScanner",
+  "geo_scanner"
+})
+
+local chatBox = findPeripheral({
+  "chatBox",
+  "chat_box"
+})
+
+
+if not playerDet then
+  error("No Player Detector found.")
+end
+
+if not envDet then
+  error("No Environment Detector found.")
+end
+
+if not geoScanner then
+  error("No Geo Scanner found.")
+end
+
+
+-- ============================================================
+-- BLOCK / ENTITY LISTS
+-- ============================================================
 
 local SCULK_NAMES = {
-  ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
-  ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true,
+  ["minecraft:sculk"] = true,
+  ["minecraft:sculk_catalyst"] = true,
+  ["minecraft:sculk_sensor"] = true,
+  ["minecraft:sculk_shrieker"] = true,
   ["minecraft:sculk_vein"] = true,
 }
+
+
 local ANIMAL_TYPES = {
-  ["minecraft:cow"] = true, ["minecraft:sheep"] = true, ["minecraft:pig"] = true,
-  ["minecraft:chicken"] = true, ["minecraft:horse"] = true,
+  ["minecraft:cow"] = true,
+  ["minecraft:sheep"] = true,
+  ["minecraft:pig"] = true,
+  ["minecraft:chicken"] = true,
+  ["minecraft:horse"] = true,
 }
 
--- === Shared state ===
+
+-- ============================================================
+-- SHARED STATE
+-- ============================================================
+
 local state = {
   animals = 0,
   sculk = 0,
   hasCatalyst = false,
-  present = {},      -- name -> enter timestamp
-  log = {},          -- array of strings, newest last
+
+  present = {},
+
+  log = {},
+
   activeTab = "status",
-  scrollOffset = 0,  -- for log tab
+
+  scrollOffset = 0,
+
   forceUpdate = false,
+
+  -- Auto-update information
+  updateStatus = "Checking...",
+  updateAvailable = false,
+  updateVersion = nil,
+
+  -- When true, the UI/background loops stop and
+  -- the program starts the newly downloaded version.
+  restartForUpdate = false,
 }
 
-local function timestamp() return os.date("%H:%M:%S") end
+
+-- ============================================================
+-- UTILITY FUNCTIONS
+-- ============================================================
+
+local function timestamp()
+  return os.date("%H:%M:%S")
+end
+
 
 local function addLog(line)
-  local full = os.date("%Y-%m-%d %H:%M:%S") .. " | " .. line
+  local full =
+    os.date("%Y-%m-%d %H:%M:%S") ..
+    " | " ..
+    line
+
   table.insert(state.log, full)
-  if #state.log > MAX_LOG_ENTRIES then table.remove(state.log, 1) end
+
+  if #state.log > MAX_LOG_ENTRIES then
+    table.remove(state.log, 1)
+  end
+
   local f = fs.open(LOG_FILE, "a")
-  f.write(full .. "\n")
-  f.close()
-  -- auto-scroll to bottom when new entries arrive
+
+  if f then
+    f.write(full .. "\n")
+    f.close()
+  end
+
+  -- Auto-scroll to bottom when new entries arrive.
   state.scrollOffset = 0
 end
 
-local function countAnimals()
-  local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
-  if not ok or type(entities) ~= "table" then return nil end
-  local count = 0
-  for _, e in ipairs(entities) do
-    if ANIMAL_TYPES[e.name] then count = count + 1 end
+
+-- ============================================================
+-- LOAD OLD LOG
+-- ============================================================
+
+local function loadLog()
+  if not fs.exists(LOG_FILE) then
+    return
   end
+
+  local f = fs.open(LOG_FILE, "r")
+
+  if not f then
+    return
+  end
+
+  while true do
+    local line = f.readLine()
+
+    if not line then
+      break
+    end
+
+    table.insert(state.log, line)
+
+    if #state.log > MAX_LOG_ENTRIES then
+      table.remove(state.log, 1)
+    end
+  end
+
+  f.close()
+end
+
+
+loadLog()
+
+
+-- ============================================================
+-- VERSION FUNCTIONS
+-- ============================================================
+
+-- Convert something like:
+--
+--   1.2.3
+--
+-- into:
+--
+--   1, 2, 3
+--
+local function parseVersion(version)
+  if type(version) ~= "string" then
+    return nil
+  end
+
+  local major, minor, patch =
+    version:match("^(%d+)%.(%d+)%.(%d+)$")
+
+  if not major then
+    return nil
+  end
+
+  return tonumber(major),
+         tonumber(minor),
+         tonumber(patch)
+end
+
+
+-- Returns:
+--   true  = first version is newer
+--   false = first version is same/older
+--
+local function isVersionNewer(remote, localVersion)
+  local rMajor, rMinor, rPatch = parseVersion(remote)
+  local lMajor, lMinor, lPatch = parseVersion(localVersion)
+
+  if not rMajor or not lMajor then
+    return false
+  end
+
+  if rMajor ~= lMajor then
+    return rMajor > lMajor
+  end
+
+  if rMinor ~= lMinor then
+    return rMinor > lMinor
+  end
+
+  return rPatch > lPatch
+end
+
+
+-- Pull VERSION = "1.2.3" out of downloaded source code.
+local function getVersionFromSource(source)
+  if type(source) ~= "string" then
+    return nil
+  end
+
+  local version =
+    source:match(
+      'local%s+VERSION%s*=%s*["\']([^"\']+)["\']'
+    )
+
+  return version
+end
+
+
+-- ============================================================
+-- AUTO UPDATE
+-- ============================================================
+
+local function checkForUpdate(manual)
+  if not http then
+    state.updateStatus = "HTTP unavailable"
+
+    if manual then
+      addLog("Update failed: HTTP is unavailable.")
+    end
+
+    return false
+  end
+
+  state.updateStatus = "Checking GitHub..."
+
+  if manual then
+    addLog("Manual update check started.")
+  end
+
+  local response
+
+  local ok, err = pcall(function()
+    response = http.get(UPDATE_URL)
+  end)
+
+  if not ok or not response then
+    state.updateStatus = "GitHub unavailable"
+
+    if manual then
+      addLog("Update failed: Could not reach GitHub.")
+    end
+
+    return false
+  end
+
+
+  local source = response.readAll()
+  response.close()
+
+
+  if not source or source == "" then
+    state.updateStatus = "Empty download"
+
+    if manual then
+      addLog("Update failed: GitHub returned an empty file.")
+    end
+
+    return false
+  end
+
+
+  -- Make sure this really looks like our program.
+  local remoteVersion = getVersionFromSource(source)
+
+  if not remoteVersion then
+    state.updateStatus = "Invalid update"
+
+    if manual then
+      addLog("Update failed: Downloaded file has no valid VERSION.")
+    end
+
+    return false
+  end
+
+
+  state.updateVersion = remoteVersion
+
+
+  -- No update needed.
+  if not isVersionNewer(remoteVersion, VERSION) then
+    state.updateAvailable = false
+    state.updateStatus =
+      "Up to date (" .. VERSION .. ")"
+
+    if manual then
+      addLog(
+        "Update check complete. Current version: " ..
+        VERSION ..
+        " | GitHub: " ..
+        remoteVersion
+      )
+    end
+
+    return false
+  end
+
+
+  -- A newer version exists.
+  state.updateAvailable = true
+  state.updateStatus =
+    "Update available: " .. remoteVersion
+
+  addLog(
+    "New version found: " ..
+    remoteVersion ..
+    " (current " ..
+    VERSION ..
+    ")"
+  )
+
+
+  -- Write the downloaded file to a temporary file first.
+  local temp = fs.open(UPDATE_TEMP, "w")
+
+  if not temp then
+    state.updateStatus = "Cannot create temp file"
+    addLog("Update failed: Could not create temporary file.")
+    return false
+  end
+
+  temp.write(source)
+  temp.close()
+
+
+  -- Make sure the temporary file actually exists.
+  if not fs.exists(UPDATE_TEMP) then
+    state.updateStatus = "Download verification failed"
+    addLog("Update failed: Temporary file was not created.")
+    return false
+  end
+
+
+  -- Verify the temporary file's VERSION.
+  local verifyFile = fs.open(UPDATE_TEMP, "r")
+
+  if not verifyFile then
+    state.updateStatus = "Verification failed"
+    addLog("Update failed: Could not verify download.")
+    return false
+  end
+
+  local verifySource = verifyFile.readAll()
+  verifyFile.close()
+
+  local verifyVersion = getVersionFromSource(verifySource)
+
+  if verifyVersion ~= remoteVersion then
+    state.updateStatus = "Verification failed"
+    addLog("Update failed: Version verification mismatch.")
+    fs.delete(UPDATE_TEMP)
+    return false
+  end
+
+
+  -- ==========================================================
+  -- BACKUP CURRENT VERSION
+  -- ==========================================================
+
+  if fs.exists(UPDATE_BACKUP) then
+    fs.delete(UPDATE_BACKUP)
+  end
+
+
+  if fs.exists(PROGRAM_PATH) then
+    local backupOK = pcall(function()
+      fs.copy(PROGRAM_PATH, UPDATE_BACKUP)
+    end)
+
+    if not backupOK or not fs.exists(UPDATE_BACKUP) then
+      state.updateStatus = "Backup failed"
+      addLog("Update failed: Could not create backup.")
+      fs.delete(UPDATE_TEMP)
+      return false
+    end
+  end
+
+
+  -- ==========================================================
+  -- INSTALL UPDATE
+  -- ==========================================================
+
+  local installOK = pcall(function()
+    if fs.exists(PROGRAM_PATH) then
+      fs.delete(PROGRAM_PATH)
+    end
+
+    fs.move(UPDATE_TEMP, PROGRAM_PATH)
+  end)
+
+
+  if not installOK or not fs.exists(PROGRAM_PATH) then
+
+    -- Try to restore the backup.
+    if fs.exists(UPDATE_BACKUP) then
+      if fs.exists(PROGRAM_PATH) then
+        fs.delete(PROGRAM_PATH)
+      end
+
+      pcall(function()
+        fs.copy(UPDATE_BACKUP, PROGRAM_PATH)
+      end)
+    end
+
+    state.updateStatus = "Install failed"
+
+    addLog(
+      "Update failed: Installation failed. " ..
+      "Previous version restored."
+    )
+
+    return false
+  end
+
+
+  -- ==========================================================
+  -- FINAL VERIFICATION
+  -- ==========================================================
+
+  local finalFile = fs.open(PROGRAM_PATH, "r")
+
+  if not finalFile then
+    state.updateStatus = "Final check failed"
+
+    addLog(
+      "Update failed: Could not read installed program."
+    )
+
+    return false
+  end
+
+  local finalSource = finalFile.readAll()
+  finalFile.close()
+
+  local finalVersion = getVersionFromSource(finalSource)
+
+
+  if finalVersion ~= remoteVersion then
+
+    -- Restore backup.
+    if fs.exists(PROGRAM_PATH) then
+      fs.delete(PROGRAM_PATH)
+    end
+
+    if fs.exists(UPDATE_BACKUP) then
+      pcall(function()
+        fs.copy(UPDATE_BACKUP, PROGRAM_PATH)
+      end)
+    end
+
+    state.updateStatus = "Update rejected"
+
+    addLog(
+      "Update rejected: Installed version did not match GitHub."
+    )
+
+    return false
+  end
+
+
+  -- Successful update.
+  state.updateStatus =
+    "Updated to " .. remoteVersion
+
+  addLog(
+    "UPDATE SUCCESS: " ..
+    VERSION ..
+    " -> " ..
+    remoteVersion
+  )
+
+  -- The program will stop its current loops and start
+  -- the newly installed version.
+  state.restartForUpdate = true
+
+  return true
+end
+
+
+-- ============================================================
+-- ANIMAL COUNTING
+-- ============================================================
+
+local function countAnimals()
+  local ok, entities = pcall(function()
+    return envDet.scanEntities(RADIUS)
+  end)
+
+  if not ok or type(entities) ~= "table" then
+    return nil
+  end
+
+  local count = 0
+
+  for _, e in ipairs(entities) do
+    if ANIMAL_TYPES[e.name] then
+      count = count + 1
+    end
+  end
+
   return count
 end
 
+
+-- ============================================================
+-- SCULK COUNTING
+-- ============================================================
+
 local lastWorkingRadius = SCAN_RADIUS
+
+
 local function countSculk()
-  local blocks, usedRadius = nil, SCAN_RADIUS
+  local blocks
+  local usedRadius = SCAN_RADIUS
+
   while usedRadius >= MIN_SCAN_RADIUS do
-    local ok, result = pcall(function() return geoScanner.scan(usedRadius) end)
-    if ok and type(result) == "table" then blocks = result break end
+
+    local ok, result = pcall(function()
+      return geoScanner.scan(usedRadius)
+    end)
+
+    if ok and type(result) == "table" then
+      blocks = result
+      break
+    end
+
     usedRadius = usedRadius - 8
   end
-  if not blocks then return nil end
+
+
+  if not blocks then
+    return nil
+  end
+
+
   lastWorkingRadius = usedRadius
-  local count, hasCatalyst = 0, false
+
+  local count = 0
+  local hasCatalyst = false
+
+
   for _, b in ipairs(blocks) do
     if SCULK_NAMES[b.name] then
+
       count = count + 1
-      if b.name == "minecraft:sculk_catalyst" then hasCatalyst = true end
+
+      if b.name == "minecraft:sculk_catalyst" then
+        hasCatalyst = true
+      end
+
     end
   end
+
+
   return count, hasCatalyst
 end
 
--- === Background watcher (runs forever, updates `state`) ===
+
+-- ============================================================
+-- BACKGROUND WATCHER
+-- ============================================================
+
 local function backgroundLoop()
+
   state.animals = countAnimals() or 0
+
   local sc, cat = countSculk()
-  state.sculk, state.hasCatalyst = sc or 0, cat or false
-  addLog("Started. Animals: " .. state.animals .. " | Sculk: " .. state.sculk)
+
+  state.sculk = sc or 0
+  state.hasCatalyst = cat or false
+
+
+  addLog(
+    "Started v" ..
+    VERSION ..
+    ". Animals: " ..
+    state.animals ..
+    " | Sculk: " ..
+    state.sculk
+  )
+
 
   local lastScanTime = os.clock()
+  local lastUpdateCheck = os.clock()
+
+
   while true do
-    local players = playerDet.getPlayersInRange(RADIUS)
+
+    -- ========================================================
+    -- PLAYER CHECK
+    -- ========================================================
+
+    local players =
+      playerDet.getPlayersInRange(RADIUS)
+
     local nowPresent = {}
+
+
     for _, name in ipairs(players) do
+
       if name ~= YOUR_NAME then
+
         nowPresent[name] = true
+
         if not state.present[name] then
+
           state.present[name] = timestamp()
-          addLog("ENTER: " .. name)
+
+          addLog(
+            "ENTER: " .. name
+          )
+
         end
       end
     end
+
+
+    -- ========================================================
+    -- PLAYER EXIT CHECK
+    -- ========================================================
+
     for name, enterTime in pairs(state.present) do
+
       if not nowPresent[name] then
-        addLog("EXIT:  " .. name .. " (since " .. enterTime .. ")")
+
+        addLog(
+          "EXIT: " ..
+          name ..
+          " (since " ..
+          enterTime ..
+          ")"
+        )
+
         state.present[name] = nil
+
       end
     end
 
-    local currentAnimals = countAnimals()
+
+    -- ========================================================
+    -- ANIMAL CHECK
+    -- ========================================================
+
+    local currentAnimals =
+      countAnimals()
+
+
     if currentAnimals and currentAnimals < state.animals then
-      local drop = state.animals - currentAnimals
-      local suspects = {}
-      for name, _ in pairs(state.present) do table.insert(suspects, name) end
-      local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby"
-      addLog("ALERT: Lost " .. drop .. " animal(s). Nearby: " .. suspectStr)
-      if chatBox then chatBox.sendMessage("Lost " .. drop .. " animal(s)! Nearby: " .. suspectStr, "Pen Watch", "&4") end
-    end
-    if currentAnimals then state.animals = currentAnimals end
 
-    if os.clock() - lastScanTime >= SCAN_INTERVAL or state.forceUpdate then
-      lastScanTime = os.clock()
-      local newSculk, newCat = countSculk()
-      if newSculk then
-        if newSculk > state.sculk then
-          local grew = newSculk - state.sculk
-          local suspects = {}
-          for name, _ in pairs(state.present) do table.insert(suspects, name) end
-          local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby (likely catalyst spread)"
-          addLog("SCULK BLOOM: +" .. grew .. ". Nearby: " .. suspectStr)
-          if chatBox then chatBox.sendMessage("Sculk bloom +" .. grew .. "! Nearby: " .. suspectStr, "Sculk Alert", "&5") end
-        end
-        state.sculk = newSculk
-        state.hasCatalyst = newCat or false
+      local drop =
+        state.animals - currentAnimals
+
+      local suspects = {}
+
+
+      for name, _ in pairs(state.present) do
+        table.insert(suspects, name)
+      end
+
+
+      local suspectStr
+
+      if #suspects > 0 then
+        suspectStr =
+          table.concat(suspects, ", ")
+      else
+        suspectStr =
+          "no player nearby"
+      end
+
+
+      addLog(
+        "ALERT: Lost " ..
+        drop ..
+        " animal(s). Nearby: " ..
+        suspectStr
+      )
+
+
+      if chatBox then
+
+        chatBox.sendMessage(
+          "Lost " ..
+          drop ..
+          " animal(s)! Nearby: " ..
+          suspectStr,
+          "Pen Watch",
+          "&4"
+        )
+
       end
     end
+
+
+    if currentAnimals then
+      state.animals = currentAnimals
+    end
+
+
+    -- ========================================================
+    -- SCULK SCAN
+    -- ========================================================
+
+    if os.clock() - lastScanTime >= SCAN_INTERVAL
+      or state.forceUpdate then
+
+      lastScanTime = os.clock()
+
+      local newSculk, newCat =
+        countSculk()
+
+
+      if newSculk then
+
+        if newSculk > state.sculk then
+
+          local grew =
+            newSculk - state.sculk
+
+          local suspects = {}
+
+
+          for name, _ in pairs(state.present) do
+            table.insert(suspects, name)
+          end
+
+
+          local suspectStr
+
+          if #suspects > 0 then
+            suspectStr =
+              table.concat(suspects, ", ")
+          else
+            suspectStr =
+              "no player nearby (likely catalyst spread)"
+          end
+
+
+          addLog(
+            "SCULK BLOOM: +" ..
+            grew ..
+            ". Nearby: " ..
+            suspectStr
+          )
+
+
+          if chatBox then
+
+            chatBox.sendMessage(
+              "Sculk bloom +" ..
+              grew ..
+              "! Nearby: " ..
+              suspectStr,
+              "Sculk Alert",
+              "&5"
+            )
+
+          end
+        end
+
+
+        state.sculk = newSculk
+        state.hasCatalyst =
+          newCat or false
+
+      end
+    end
+
+
+    -- ========================================================
+    -- MANUAL SCAN FLAG
+    -- ========================================================
 
     if state.forceUpdate then
-      addLog("Manual refresh triggered.")
+
+      addLog(
+        "Manual scan triggered."
+      )
+
       state.forceUpdate = false
+
     end
+
+
+    -- ========================================================
+    -- AUTOMATIC CODE UPDATE
+    -- ========================================================
+
+    if os.clock() - lastUpdateCheck >= UPDATE_INTERVAL then
+
+      lastUpdateCheck = os.clock()
+
+      checkForUpdate(false)
+
+      if state.restartForUpdate then
+        return
+      end
+
+    end
+
+
+    -- ========================================================
+    -- REDRAW UI
+    -- ========================================================
 
     os.queueEvent("pw_redraw")
+
     sleep(CHECK_INTERVAL)
+
   end
 end
 
--- === UI drawing ===
+
+-- ============================================================
+-- UI DRAWING
+-- ============================================================
+
 local w, h = term.getSize()
+
 local buttons = {}
 
-local function addButton(x, y, text, action, bg, fg)
+
+local function addButton(
+  x,
+  y,
+  text,
+  action,
+  bg,
+  fg
+)
+
   term.setCursorPos(x, y)
-  term.setBackgroundColor(bg or colors.gray)
-  term.setTextColor(fg or colors.white)
+
+  term.setBackgroundColor(
+    bg or colors.gray
+  )
+
+  term.setTextColor(
+    fg or colors.white
+  )
+
   term.write(text)
-  table.insert(buttons, {x1 = x, x2 = x + #text - 1, y = y, action = action})
+
+
+  table.insert(
+    buttons,
+    {
+      x1 = x,
+      x2 = x + #text - 1,
+      y = y,
+      action = action
+    }
+  )
 end
+
 
 local function clearLine(y, bg)
+
   term.setCursorPos(1, y)
-  term.setBackgroundColor(bg or colors.black)
-  term.write(string.rep(" ", w))
+
+  term.setBackgroundColor(
+    bg or colors.black
+  )
+
+  term.write(
+    string.rep(" ", w)
+  )
 end
+
+
+-- ============================================================
+-- DRAW
+-- ============================================================
 
 local function draw()
+
   buttons = {}
-  term.setBackgroundColor(colors.black)
+
+
+  term.setBackgroundColor(
+    colors.black
+  )
+
   term.clear()
 
-  -- Header
-  clearLine(1, colors.blue)
+
+  -- ==========================================================
+  -- HEADER
+  -- ==========================================================
+
+  clearLine(
+    1,
+    colors.blue
+  )
+
   term.setCursorPos(2, 1)
-  term.setTextColor(colors.white)
-  term.write("Pen Watch")
 
-  -- Tabs
+  term.setTextColor(
+    colors.white
+  )
+
+  term.write(
+    "Pen Watch v" .. VERSION
+  )
+
+
+  -- ==========================================================
+  -- TABS
+  -- ==========================================================
+
   clearLine(2)
-  addButton(2, 2, " Status ", function() state.activeTab = "status" end,
-    state.activeTab == "status" and colors.cyan or colors.gray,
-    state.activeTab == "status" and colors.black or colors.white)
-  addButton(11, 2, " Log ", function() state.activeTab = "log" end,
-    state.activeTab == "log" and colors.cyan or colors.gray,
-    state.activeTab == "log" and colors.black or colors.white)
 
-  -- Content area: rows 4 to h-2
-  local contentTop, contentBottom = 4, h - 2
+
+  addButton(
+    2,
+    2,
+    " Status ",
+    function()
+      state.activeTab = "status"
+    end,
+    state.activeTab == "status"
+      and colors.cyan
+      or colors.gray,
+    state.activeTab == "status"
+      and colors.black
+      or colors.white
+  )
+
+
+  addButton(
+    11,
+    2,
+    " Log ",
+    function()
+      state.activeTab = "log"
+    end,
+    state.activeTab == "log"
+      and colors.cyan
+      or colors.gray,
+    state.activeTab == "log"
+      and colors.black
+      or colors.white
+  )
+
+
+  -- ==========================================================
+  -- CONTENT AREA
+  -- ==========================================================
+
+  local contentTop = 4
+  local contentBottom = h - 2
+
 
   if state.activeTab == "status" then
-    term.setBackgroundColor(colors.black)
-    term.setTextColor(colors.white)
-    term.setCursorPos(2, contentTop)
-    term.write("Animals: " .. state.animals)
-    term.setCursorPos(2, contentTop + 1)
-    term.write("Sculk blocks: " .. state.sculk .. (state.hasCatalyst and " (CATALYST!)" or ""))
 
-    addButton(w - 12, 2, " Update ", function() state.forceUpdate = true end)
+    term.setBackgroundColor(
+      colors.black
+    )
 
-    term.setCursorPos(2, contentTop + 3)
-    term.write("Players nearby:")
-    local row = contentTop + 4
+    term.setTextColor(
+      colors.white
+    )
+
+
+    -- ========================================================
+    -- STATUS
+    -- ========================================================
+
+    term.setCursorPos(
+      2,
+      contentTop
+    )
+
+    term.write(
+      "Animals: " ..
+      state.animals
+    )
+
+
+    term.setCursorPos(
+      2,
+      contentTop + 1
+    )
+
+    term.write(
+      "Sculk blocks: " ..
+      state.sculk ..
+      (
+        state.hasCatalyst
+        and " (CATALYST!)"
+        or ""
+      )
+    )
+
+
+    -- ========================================================
+    -- UPDATE STATUS
+    -- ========================================================
+
+    term.setCursorPos(
+      2,
+      contentTop + 2
+    )
+
+    term.setTextColor(
+      colors.lightBlue
+    )
+
+    term.write(
+      "Code: " ..
+      state.updateStatus
+    )
+
+
+    -- ========================================================
+    -- SCAN BUTTON
+    -- ========================================================
+
+    addButton(
+      w - 20,
+      2,
+      " Scan ",
+      function()
+        state.forceUpdate = true
+      end
+    )
+
+
+    -- ========================================================
+    -- UPDATE BUTTON
+    -- ========================================================
+
+    addButton(
+      w - 12,
+      2,
+      " Update ",
+      function()
+
+        checkForUpdate(true)
+
+        os.queueEvent(
+          "pw_redraw"
+        )
+
+      end,
+      state.updateAvailable
+        and colors.orange
+        or colors.gray
+    )
+
+
+    -- ========================================================
+    -- PLAYERS
+    -- ========================================================
+
+    term.setTextColor(
+      colors.white
+    )
+
+    term.setCursorPos(
+      2,
+      contentTop + 4
+    )
+
+    term.write(
+      "Players nearby:"
+    )
+
+
+    local row =
+      contentTop + 5
+
     local any = false
+
+
     for name, since in pairs(state.present) do
+
       if row <= contentBottom then
-        term.setCursorPos(4, row)
-        term.setTextColor(colors.orange)
-        term.write(name .. " (since " .. since .. ")")
+
+        term.setCursorPos(
+          4,
+          row
+        )
+
+        term.setTextColor(
+          colors.orange
+        )
+
+        term.write(
+          name ..
+          " (since " ..
+          since ..
+          ")"
+        )
+
         row = row + 1
+
         any = true
+
       end
     end
+
+
     if not any then
-      term.setCursorPos(4, row)
-      term.setTextColor(colors.gray)
-      term.write("(none)")
-    end
-  else -- log tab
-    term.setTextColor(colors.white)
-    local visibleRows = contentBottom - contentTop + 1
-    local totalLines = #state.log
-    local startIdx = math.max(1, totalLines - visibleRows + 1 - state.scrollOffset)
-    local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
-    local row = contentTop
-    for i = startIdx, endIdx do
-      term.setCursorPos(2, row)
-      local line = state.log[i]
-      if #line > w - 2 then line = line:sub(1, w - 2) end
-      term.write(line)
-      row = row + 1
+
+      term.setCursorPos(
+        4,
+        row
+      )
+
+      term.setTextColor(
+        colors.gray
+      )
+
+      term.write(
+        "(none)"
+      )
+
     end
 
-    -- scroll buttons
-    addButton(w - 12, 2, " Up ", function()
-      state.scrollOffset = math.min(state.scrollOffset + visibleRows, math.max(0, totalLines - visibleRows))
-    end)
-    addButton(w - 6, 2, " Down ", function()
-      state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
-    end)
+
+  else
+
+    -- ========================================================
+    -- LOG TAB
+    -- ========================================================
+
+    term.setTextColor(
+      colors.white
+    )
+
+
+    local visibleRows =
+      contentBottom -
+      contentTop +
+      1
+
+
+    local totalLines =
+      #state.log
+
+
+    local startIdx =
+      math.max(
+        1,
+        totalLines -
+        visibleRows +
+        1 -
+        state.scrollOffset
+      )
+
+
+    local endIdx =
+      math.min(
+        totalLines,
+        startIdx +
+        visibleRows -
+        1
+      )
+
+
+    local row =
+      contentTop
+
+
+    for i = startIdx, endIdx do
+
+      term.setCursorPos(
+        2,
+        row
+      )
+
+      local line =
+        state.log[i]
+
+
+      if #line > w - 2 then
+        line =
+          line:sub(1, w - 2)
+      end
+
+
+      term.write(line)
+
+      row = row + 1
+
+    end
+
+
+    -- ========================================================
+    -- LOG SCROLL BUTTONS
+    -- ========================================================
+
+    addButton(
+      w - 12,
+      2,
+      " Up ",
+      function()
+
+        state.scrollOffset =
+          math.min(
+            state.scrollOffset +
+            visibleRows,
+            math.max(
+              0,
+              totalLines -
+              visibleRows
+            )
+          )
+
+      end
+    )
+
+
+    addButton(
+      w - 6,
+      2,
+      " Down ",
+      function()
+
+        state.scrollOffset =
+          math.max(
+            state.scrollOffset -
+            visibleRows,
+            0
+          )
+
+      end
+    )
+
   end
 
-  -- Footer
-  clearLine(h - 1, colors.gray)
-  term.setCursorPos(2, h - 1)
-  term.setTextColor(colors.white)
-  term.write(string.rep("-", w - 2))
+
+  -- ==========================================================
+  -- FOOTER
+  -- ==========================================================
+
+  clearLine(
+    h - 1,
+    colors.gray
+  )
+
+  term.setCursorPos(
+    2,
+    h - 1
+  )
+
+  term.setTextColor(
+    colors.white
+  )
+
+  term.write(
+    string.rep("-", w - 2)
+  )
+
+
   clearLine(h)
-  addButton(2, h, " Quit ", function() error("__QUIT__") end, colors.red, colors.white)
+
+
+  addButton(
+    2,
+    h,
+    " Quit ",
+    function()
+      error("__QUIT__")
+    end,
+    colors.red,
+    colors.white
+  )
+
 end
+
+
+-- ============================================================
+-- UI LOOP
+-- ============================================================
 
 local function uiLoop()
+
   draw()
+
+
   while true do
-    local event, a, b, c = os.pullEvent()
+
+    local event, a, b, c =
+      os.pullEvent()
+
+
+    -- ========================================================
+    -- MOUSE
+    -- ========================================================
+
     if event == "mouse_click" then
+
       local x, y = b, c
+
+
       for _, btn in ipairs(buttons) do
-        if y == btn.y and x >= btn.x1 and x <= btn.x2 then
+
+        if y == btn.y
+          and x >= btn.x1
+          and x <= btn.x2 then
+
           btn.action()
+
         end
       end
+
+
       draw()
+
+
+    -- ========================================================
+    -- REDRAW EVENT
+    -- ========================================================
+
     elseif event == "pw_redraw" then
+
       draw()
+
     end
+
   end
 end
 
-local ok, err = pcall(function()
-  parallel.waitForAny(backgroundLoop, uiLoop)
-end)
 
-term.setBackgroundColor(colors.black)
-term.setTextColor(colors.white)
-term.clear()
-term.setCursorPos(1, 1)
-if err == "__QUIT__" then
-  print("Pen Watch stopped.")
-else
-  print("Pen Watch crashed: " .. tostring(err))
+-- ============================================================
+-- STARTUP UPDATE CHECK
+-- ============================================================
+
+-- Check GitHub immediately when the program starts.
+--
+-- If an update is installed, the background loop will stop
+-- and the new version will be launched below.
+
+checkForUpdate(false)
+
+
+-- ============================================================
+-- RUN PROGRAM
+-- ============================================================
+
+if not state.restartForUpdate then
+
+  local ok, err = pcall(function()
+
+    parallel.waitForAny(
+      backgroundLoop,
+      uiLoop
+    )
+
+  end)
+
+
+  -- ==========================================================
+  -- RESTART AFTER UPDATE
+  -- ==========================================================
+
+  if state.restartForUpdate then
+
+    term.setBackgroundColor(
+      colors.black
+    )
+
+    term.setTextColor(
+      colors.white
+    )
+
+    term.clear()
+
+    term.setCursorPos(
+      1,
+      1
+    )
+
+    print(
+      "Pen Watch updated!"
+    )
+
+    print(
+      "Starting version " ..
+      state.updateVersion ..
+      "..."
+    )
+
+    sleep(2)
+
+    -- Start the newly downloaded program.
+    shell.run(PROGRAM_PATH)
+
+  elseif err == "__QUIT__" then
+
+    term.setBackgroundColor(
+      colors.black
+    )
+
+    term.setTextColor(
+      colors.white
+    )
+
+    term.clear()
+
+    term.setCursorPos(
+      1,
+      1
+    )
+
+    print(
+      "Pen Watch stopped."
+    )
+
+  else
+
+    term.setBackgroundColor(
+      colors.black
+    )
+
+    term.setTextColor(
+      colors.white
+    )
+
+    term.clear()
+
+    term.setCursorPos(
+      1,
+      1
+    )
+
+    print(
+      "Pen Watch crashed: " ..
+      tostring(err)
+    )
+
+  end
+
 end
