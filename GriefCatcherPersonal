@@ -73,7 +73,7 @@ end
 
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
-  if not ok or not entities then return nil end
+  if not ok or type(entities) ~= "table" then return nil end
   local count = 0
   for _, e in ipairs(entities) do
     if ANIMAL_TYPES[e.name] then count = count + 1 end
@@ -89,7 +89,7 @@ local function countSculk()
   local usedRadius = SCAN_RADIUS
   while usedRadius >= MIN_SCAN_RADIUS do
     local ok, result = pcall(function() return geoScanner.scan(usedRadius) end)
-    if ok and result then
+    if ok and type(result) == "table" then
       blocks = result
       break
     end
