@@ -73,7 +73,7 @@ end
 
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
-  if not ok then return nil end
+  if not ok or not entities then return nil end
   local count = 0
   for _, e in ipairs(entities) do
     if ANIMAL_TYPES[e.name] then count = count + 1 end
