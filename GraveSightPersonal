@@ -21,6 +21,9 @@
 -- ============================================================
 -- 1. CONFIGURATION & SECURITY CORE
 -- ------------------------------------------------------------
+-- [ SAFE TO EDIT ] Change default starting values here if desired.
+-- You can also tweak these live in game via the Settings tab.
+-- ============================================================
 local YOUR_NAME = "DiyuWupo"         -- Your Minecraft username
 local RADIUS = 50                    -- Player/entity monitoring radius (blocks)
 local SCAN_RADIUS = 16               -- Geo Scanner block radius
@@ -52,6 +55,7 @@ local setup = {
 
 local failedAttempts = 0
 
+-- Iterated Salted Hash Algorithm
 local function hashPassword(password)
   local salt = "GraveSight_Salt_2026_Secure"
   local str = password .. salt
@@ -399,6 +403,7 @@ local state = {
   updateAvailable = false,
   updateVersion = nil,
   restartForUpdate = false,
+  running = true,
 }
 
 local checkForUpdate
@@ -648,8 +653,8 @@ local function backgroundLoop()
   local lastScanTime = os.clock()
   local lastUpdateCheck = os.clock()
 
-  while true do
-    -- Robust check for incoming private remote commands
+  while state.running do
+    -- Non-blocking check for incoming private remote commands from Pocket Remote
     if modem and rednet.isOpen() then
       local ok, senderID, msg, protocol = pcall(function()
         return rednet.receive(REDNET_CHANNEL, 0)
@@ -946,7 +951,7 @@ local function draw()
     local input = read("*")
 
     if passwordCorrect(input) then
-      error("__QUIT__")
+      state.running = false
     else
       term.setCursorPos(2, 8)
       term.setTextColor(theme().danger)
@@ -958,7 +963,7 @@ end
 
 local function uiLoop()
   draw()
-  while true do
+  while state.running do
     local event, a, b, c = os.pullEventRaw()
     if event == "mouse_click" then
       local x, y = b, c
@@ -967,34 +972,22 @@ local function uiLoop()
           btn.action()
         end
       end
-      draw()
+      if state.running then draw() end
     elseif event == "mouse_scroll" then
       local dir = a
       if state.activeTab == "log" then
         local visibleRows = (h - 2) - 4 + 1
         local totalLines = #state.log
-        local startIdx = math.max(1, totalLines - visibleRows + 1 - state.scrollOffset)
-        local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
-        local row = contentTop
-        for i = startIdx, endIdx do
-          term.setBackgroundColor(theme().background)
-          term.setTextColor(theme().text)
-          term.setCursorPos(2, row)
-          local line = state.log[i]
-          if #line > w - 2 then line = line:sub(1, w - 2) end
-          term.write(line)
-          row = row + 1
+        local maxScroll = math.max(0, totalLines - visibleRows)
+        if dir < 0 then
+          state.scrollOffset = math.min(state.scrollOffset + 3, maxScroll)
+        elseif dir > 0 then
+          state.scrollOffset = math.max(state.scrollOffset - 3, 0)
         end
-
-        addButton(w - 12, 2, " Up ", function()
-          state.scrollOffset = math.min(state.scrollOffset + visibleRows, math.max(0, totalLines - visibleRows))
-        end)
-        addButton(w - 6, 2, " Down ", function()
-          state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
-        end)
+        draw()
       end
     elseif event == "gravesight_redraw" then
-      draw()
+      if state.running then draw() end
     elseif event == "terminate" then
       addLog("SECURITY WARNING: Manual termination attempt blocked.")
     end
@@ -1146,9 +1139,8 @@ os.pullEvent = os.pullEventRaw
 
 checkForUpdate(false)
 
-local ok, err
 if not state.restartForUpdate then
-  ok, err = pcall(function()
+  pcall(function()
     parallel.waitForAny(backgroundLoop, uiLoop)
   end)
 end
@@ -1163,8 +1155,6 @@ if state.restartForUpdate then
   print("Restarting...")
   sleep(2)
   shell.run(PROGRAM_PATH)
-elseif err == "__QUIT__" then
-  print("GRAVESIGHT stopped.")
 else
-  print("GRAVESIGHT crashed: " .. tostring(err))
+  print("GRAVESIGHT stopped.")
 end
