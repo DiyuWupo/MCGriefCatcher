@@ -97,7 +97,14 @@ while running do
     if y == h then
       -- EXIT button check (covers columns 1 to 6)
       if x >= 1 and x <= 6 then
-        running = false
+        -- Clean exit right here
+        term.setBackgroundColor(colors.black)
+        term.setTextColor(colors.white)
+        term.clear()
+        term.setCursorPos(1, 1)
+        print("Remote offline.")
+        return
+        
       -- SCAN button check (covers columns 9 to 20)
       elseif x >= 9 and x <= 20 then
         local ok = pcall(function()
@@ -115,9 +122,3 @@ while running do
     end
   end
 end
-
--- Clean Exit
-term.setBackgroundColor(colors.black)
-term.clear()
-term.setCursorPos(1,1)
-print("Remote offline.")
