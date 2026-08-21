@@ -1,39 +1,46 @@
 -- ============================================================
--- Diyu's GraveSight (Hardened Edition)
+--          DIYU'S GRAVESIGHT // PLAYER QUICK GUIDE
 -- ============================================================
--- Personal Minecraft grief-detection and area-monitoring system.
+--  WELCOME! IF YOU ARE LOOKING AT THIS CODE:
 --
--- CODE MAP
---   1. Configuration & Security Core
---   2. Peripheral Setup
---   3. Detection Lists
---   4. Shared State
---   5. Logging & Utility Functions
---   6. Animal Detection
---   7. Sculk Detection
---   8. Background Monitoring
---   9. User Interface
---  10. Version & Auto Update
---  11. Program Startup
+--  1. YOU DO NOT NEED TO EDIT THIS FILE TO USE THE PROGRAM.
+--     Use the interactive on-screen buttons on the Advanced
+--     Computer monitor to change themes, tweak radii, manage
+--     whitelists, or set up Discord webhooks.
+--
+--  2. IF YOU WANT TO CHANGE DEFAULTS IN CODE:
+--     Only modify the variables in SECTION 1 directly below.
+--     Sections 2 through 11 handle internal logic—touching them
+--     without Lua knowledge may break monitoring.
+--
+--  3. IF THE SCRIPT BREAKS:
+--     Delete this file ('rm gravesight.lua') and re-run the 
+--     installer command to pull a fresh copy from GitHub.
 -- ============================================================
 
 -- ============================================================
 -- 1. CONFIGURATION & SECURITY CORE
+-- ------------------------------------------------------------
+-- [ SAFE TO EDIT ] Change default starting values here if desired.
+-- You can also tweak these live in game via the Settings tab.
 -- ============================================================
-local YOUR_NAME = "DiyuWupo"       -- Your Minecraft username
-local RADIUS = 50                    -- Player/entity monitoring radius
-local SCAN_RADIUS = 16               -- Geo Scanner radius
-local MIN_SCAN_RADIUS = 8            -- Smallest fallback scan radius
-local LOG_FILE = "gravesight.log"    -- Persistent log filename
-local CHECK_INTERVAL = 2             -- Main monitoring loop delay (seconds)
-local SCAN_INTERVAL = 12             -- Sculk scan interval (seconds)
-local MAX_LOG_ENTRIES = 300          -- Log entries kept in memory
-local SETTINGS_FILE = "gravesight_settings.cfg" -- Saved settings
-local REDNET_CHANNEL = 999           -- Offsite blackbox broadcast channel
+local YOUR_NAME = "DiyuWupo"         -- Your Minecraft username
+local RADIUS = 50                    -- Player/entity monitoring radius (blocks)
+local SCAN_RADIUS = 16               -- Geo Scanner block radius
+local MIN_SCAN_RADIUS = 8            -- Fallback scan radius for lower-tier scanners
+local LOG_FILE = "gravesight.log"    -- Text file where events are saved
+local CHECK_INTERVAL = 2             -- How often to check for players (seconds)
+local SCAN_INTERVAL = 12             -- How often to scan for Sculk (seconds)
+local MAX_LOG_ENTRIES = 300          -- Max log entries stored in RAM
+local SETTINGS_FILE = "gravesight_settings.cfg" -- File storing saved settings
+local REDNET_CHANNEL = 999           -- Wireless blackbox broadcast channel
+
+local DISCORD_WEBHOOK = ""           -- Saved Discord Webhook URL
+local DISCORD_ENABLED = false        -- Discord alert toggle (true/false)
 
 local VERSION = "1.0.0"
 local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/gravesight.lua"
-local UPDATE_INTERVAL = 600          -- GitHub check interval (seconds)
+local UPDATE_INTERVAL = 31536000     -- GitHub update check delay (Startup/Manual only)
 local UPDATE_TEMP = ".gravesight_update.tmp"
 local UPDATE_BACKUP = ".gravesight_backup.lua"
 local PROGRAM_PATH = shell.getRunningProgram()
@@ -104,7 +111,67 @@ local function passwordCorrect(password)
   end
 end
 
+-- ============================================================
+-- 15-SECOND DRAMATIC WARDEN BOOT ANIMATION
+-- ============================================================
+local function runDramaticWardenBoot()
+  term.setBackgroundColor(colors.black)
+  term.clear()
+  local w, h = term.getSize()
+
+  local function center(y, message, color)
+    term.setCursorPos(math.max(1, math.floor((w - #message) / 2) + 1), y)
+    term.setTextColor(color or colors.white)
+    term.write(message)
+  end
+
+  local sequence = {
+    { text = ">> INITIATING DEEP DARK PROTOCOL v" .. VERSION .. " <<", color = colors.cyan, delay = 1.0 },
+    { text = "[!] SENSING VIBRATIONS IN LOCAL SUBSTRATE...", color = colors.gray, delay = 1.2 },
+    { text = "[*] CALIBRATING SCULK RESONANCE FREQUENCY...", color = colors.blue, delay = 1.3 },
+    { text = "[!] ANCIENT CATALYST DETECTED -- AWAKENING CORE", color = colors.purple, delay = 1.5 },
+    { text = "[*] ESTABLISHING NEURAL TENDONS...", color = colors.lightBlue, delay = 1.2 },
+    { text = "[!] HARVESTING BIO-ACOUSTIC SIGNATURES...", color = colors.cyan, delay = 1.3 },
+    { text = "[*] SYNCHRONIZING WARDEN BIOMETRICS...", color = colors.lime, delay = 1.5 },
+    { text = ">> ALL SENSORY TENDONS FULLY ENGAGED <<", color = colors.green, delay = 1.0 }
+  }
+
+  local startY = math.max(2, math.floor((h - #sequence) / 2) - 1)
+
+  for i, step in ipairs(sequence) do
+    center(startY + (i - 1), step.text, step.color)
+    
+    -- Sub-progress bar effect for dynamic feedback
+    local barW = math.min(30, w - 4)
+    local barX = math.floor((w - barW) / 2) + 1
+    local barY = math.min(h - 1, startY + #sequence + 1)
+    
+    for b = 1, barW do
+      term.setCursorPos(barX + b - 1, barY)
+      term.setBackgroundColor((b / barW <= i / #sequence) and colors.cyan or colors.gray)
+      term.write(" ")
+    end
+    term.setBackgroundColor(colors.black)
+    
+    sleep(step.delay)
+  end
+
+  -- Ominous visual heartbeat / pulse flash (3.0 seconds total to complete ~15s)
+  for pulse = 1, 3 do
+    term.setTextColor(pulse % 2 == 1 and colors.cyan or colors.lightBlue)
+    center(startY + #sequence + 3, "::: WARDEN SENSORS PULSING :::", pulse % 2 == 1 and colors.cyan or colors.lightBlue)
+    sleep(0.5)
+    center(startY + #sequence + 3, "   WARDEN SENSORS PULSING   ", colors.black)
+    sleep(0.5)
+  end
+
+  term.clear()
+end
+
 local function runFirstSetup()
+  -- Execute dramatic startup
+  runDramaticWardenBoot()
+
   term.setBackgroundColor(colors.black)
   term.clear()
 
@@ -123,21 +190,6 @@ local function runFirstSetup()
     center(3, "      DIYU'S GRAVESIGHT // CORE        ", colors.cyan)
     center(4, "========================================", colors.gray)
   end
-
-  drawHeader()
-  center(7, "[ INITIALIZING WARDEN PROTOCOLS ]", colors.green)
-  sleep(0.4)
-
-  local barWidth = 20
-  local startX = math.floor((w - barWidth) / 2) + 1
-  for i = 1, barWidth do
-    term.setCursorPos(startX + i - 1, 9)
-    term.setBackgroundColor(colors.cyan)
-    term.write(" ")
-    sleep(0.03)
-  end
-  term.setBackgroundColor(colors.black)
-  sleep(0.3)
 
   drawHeader()
   term.setCursorPos(3, 7)
@@ -224,6 +276,9 @@ end
 loadSetup()
 if not setup.configured then
   runFirstSetup()
+else
+  -- Run boot scan sequence on configured launch as well
+  runDramaticWardenBoot()
 end
 
 YOUR_NAME = setup.owner
@@ -249,8 +304,14 @@ if not term.isColor() then
 end
 
 -- ============================================================
--- 2. PERIPHERAL SETUP
+-- 2. PERIPHERAL SETUP & HARDWARE CHECK
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Automatically detects attached blocks (Geo Scanner,
+-- Player Detector, Environment Detector, Chat Box, Wireless Modem).
+-- Displays a friendly setup screen if any required block is missing.
 -- ============================================================
+local playerDet, envDet, geoScanner, chatBox, modem
+
 local function findPeripheral(possibleNames)
   for _, name in ipairs(peripheral.getNames()) do
     local ptype = peripheral.getType(name)
@@ -261,22 +322,66 @@ local function findPeripheral(possibleNames)
   return nil
 end
 
-local playerDet = findPeripheral({"playerDetector", "player_detector"})
-local envDet = findPeripheral({"environmentDetector", "environment_detector"})
-local geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
-local chatBox = findPeripheral({"chatBox", "chat_box"})
-local modem = findPeripheral({"modem"})
+local function scanHardware()
+  playerDet = findPeripheral({"playerDetector", "player_detector"})
+  envDet = findPeripheral({"environmentDetector", "environment_detector"})
+  geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
+  chatBox = findPeripheral({"chatBox", "chat_box"})
+  modem = findPeripheral({"modem"})
 
-if not playerDet then error("No Player Detector found.") end
-if not envDet then error("No Environment Detector found.") end
-if not geoScanner then error("No Geo Scanner found.") end
-
-if modem then
-  pcall(function() rednet.open(peripheral.getName(modem)) end)
+  local missing = {}
+  if not playerDet then table.insert(missing, "Player Detector") end
+  if not envDet then table.insert(missing, "Environment Detector") end
+  if not geoScanner then table.insert(missing, "Geo Scanner") end
+  return missing
 end
+
+local function ensureHardwareAttached()
+  local missing = scanHardware()
+  while #missing > 0 do
+    term.setBackgroundColor(colors.black)
+    term.clear()
+    local w, h = term.getSize()
+
+    local function center(y, message, color)
+      term.setCursorPos(math.max(1, math.floor((w - #message) / 2) + 1), y)
+      term.setTextColor(color or colors.white)
+      term.write(message)
+    end
+
+    center(2, "========================================", colors.red)
+    center(3, "     HARDWARE CONFIGURATION REQUIRED    ", colors.orange)
+    center(4, "========================================", colors.red)
+
+    center(6, "Missing required peripheral(s):", colors.white)
+
+    for i, item in ipairs(missing) do
+      center(7 + i, "[ ! ]  " .. item, colors.yellow)
+    end
+
+    local iy = 9 + #missing
+    center(iy, "----------------------------------------", colors.gray)
+    center(iy + 2, "Please attach missing blocks directly to this", colors.lightGray)
+    center(iy + 3, "computer or connect them via wired modems.", colors.lightGray)
+
+    center(iy + 5, "Press ANY KEY to retry scan...", colors.cyan)
+
+    os.pullEventRaw("key")
+    missing = scanHardware()
+  end
+
+  if modem then
+    pcall(function() rednet.open(peripheral.getName(modem)) end)
+  end
+end
+
+ensureHardwareAttached()
 
 -- ============================================================
 -- 3. DETECTION LISTS
+-- ------------------------------------------------------------
+-- [ ADVANCED SAFE TO EDIT ] List of Minecraft block and entity IDs
+-- monitored by GraveSight. You can add new modded animal or Sculk IDs.
 -- ============================================================
 local SCULK_NAMES = {
   ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
@@ -291,6 +396,9 @@ local ANIMAL_TYPES = {
 
 -- ============================================================
 -- 4. SHARED STATE
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Internal live memory tracking animals, sculk count,
+-- present players, log history, and UI tab selections.
 -- ============================================================
 local state = {
   animals = 0,
@@ -301,8 +409,6 @@ local state = {
   activeTab = "status",
   themeName = "Sculk",
   settingsScroll = 0,
-  whitelistMode = false,
-  whitelistMessage = "",
   settingsMessage = "",
   scrollOffset = 0,
   forceUpdate = false,
@@ -317,8 +423,22 @@ local checkForUpdate
 
 -- ============================================================
 -- 5. LOGGING & UTILITY FUNCTIONS
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Handles text log file writes, Discord webhook
+-- HTTP posts, offsite Rednet broadcasts, and UI theme switching.
 -- ============================================================
 local function timestamp() return os.date("%H:%M:%S") end
+
+local function sendDiscordAlert(alertMsg)
+  if not DISCORD_ENABLED or DISCORD_WEBHOOK == "" or not http then return end
+  local payload = textutils.serializeJSON({
+    username = "GraveSight Warden (" .. setup.owner .. ")",
+    content = "**[GRAVESIGHT ALERT]** " .. alertMsg
+  })
+  pcall(function()
+    http.post(DISCORD_WEBHOOK, payload, { ["Content-Type"] = "application/json" })
+  end)
+end
 
 local function broadcastOffsite(alertMsg)
   if modem and rednet.isOpen() then
@@ -346,6 +466,7 @@ local function addLog(line)
   
   if line:find("ALERT") or line:find("ENTER") or line:find("BLOOM") then
     broadcastOffsite(line)
+    sendDiscordAlert(line)
   end
 end
 
@@ -370,6 +491,7 @@ local function saveSettings()
     radius = RADIUS, scanRadius = SCAN_RADIUS, checkInterval = CHECK_INTERVAL,
     scanInterval = SCAN_INTERVAL, updateInterval = UPDATE_INTERVAL,
     chatAlerts = chatBox ~= nil and true or false, animals = {}, sculk = {},
+    discordWebhook = DISCORD_WEBHOOK, discordEnabled = DISCORD_ENABLED
   }
   for name, enabled in pairs(ANIMAL_TYPES) do data.animals[name] = enabled end
   for name, enabled in pairs(SCULK_NAMES) do data.sculk[name] = enabled end
@@ -392,7 +514,10 @@ local function loadSettings()
   if type(data.scanRadius) == "number" then SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, math.min(32, data.scanRadius)) end
   if type(data.checkInterval) == "number" then CHECK_INTERVAL = math.max(1, math.min(30, data.checkInterval)) end
   if type(data.scanInterval) == "number" then SCAN_INTERVAL = math.max(2, math.min(60, data.scanInterval)) end
-  if type(data.updateInterval) == "number" then UPDATE_INTERVAL = math.max(60, math.min(3600, data.updateInterval)) end
+  if type(data.updateInterval) == "number" then UPDATE_INTERVAL = math.max(60, math.min(31536000, data.updateInterval)) end
+
+  if type(data.discordWebhook) == "string" then DISCORD_WEBHOOK = data.discordWebhook end
+  if type(data.discordEnabled) == "boolean" then DISCORD_ENABLED = data.discordEnabled end
 
   if type(data.animals) == "table" then
     for name in pairs(ANIMAL_TYPES) do
@@ -499,6 +624,9 @@ end
 
 -- ============================================================
 -- 6. ANIMAL DETECTION
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Queries Environment Detector peripheral to count
+-- living animals/mobs within configured radius.
 -- ============================================================
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
@@ -512,6 +640,9 @@ end
 
 -- ============================================================
 -- 7. SCULK DETECTION
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Queries Geo Scanner peripheral to detect Sculk
+-- blocks, veins, and active Catalysts within scan radius.
 -- ============================================================
 local function countSculk()
   local blocks, usedRadius = nil, SCAN_RADIUS
@@ -534,6 +665,9 @@ end
 
 -- ============================================================
 -- 8. BACKGROUND MONITORING
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Core async loop. Runs continuously in background
+-- to detect player entries/exits, entity loss, and sculk blooms.
 -- ============================================================
 local function backgroundLoop()
   state.animals = countAnimals() or 0
@@ -609,6 +743,9 @@ end
 
 -- ============================================================
 -- 9. USER INTERFACE
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Graphical user interface. Handles tab drawing,
+-- mouse clicks, mouse wheel scrolling, buttons, and settings input.
 -- ============================================================
 local w, h = term.getSize()
 local buttons = {}
@@ -754,22 +891,54 @@ local function draw()
     addButton(44, contentTop + 4, " - ", function() SCAN_INTERVAL = math.max(2, SCAN_INTERVAL - 2); saveSettings() end)
     addButton(48, contentTop + 4, " + ", function() SCAN_INTERVAL = math.min(60, SCAN_INTERVAL + 2); saveSettings() end)
 
-    term.setCursorPos(2, contentTop + 7)
+    term.setCursorPos(2, contentTop + 6)
     setAccent()
     term.write("WHITELIST: ")
-    addButton(14, contentTop + 7, " + ADD ", function() state.whitelistMode = true end)
-
-    if state.whitelistMode then
-      term.setCursorPos(23, contentTop + 7)
+    addButton(14, contentTop + 6, " + ADD ", function()
+      term.setCursorPos(23, contentTop + 6)
       term.setTextColor(colors.yellow)
-      term.write("Type Name & Enter: ")
+      term.write("Type Name: ")
+      term.setTextColor(theme().text)
       local name = read()
       if name and name ~= "" then
         addToWhitelist(name)
         state.settingsMessage = "Added " .. name
+      else
+        state.settingsMessage = "Cancelled"
       end
-      state.whitelistMode = false
-    end
+    end)
+
+    term.setCursorPos(2, contentTop + 8)
+    setAccent()
+    term.write("DISCORD: ")
+    setMuted()
+    term.write((DISCORD_WEBHOOK ~= "" and (DISCORD_ENABLED and "ON" or "OFF")) or "NOT SET")
+    addButton(20, contentTop + 8, DISCORD_ENABLED and " DISABLE " or " ENABLE ", function()
+      if DISCORD_WEBHOOK == "" then
+        state.settingsMessage = "Set Webhook URL first!"
+      else
+        DISCORD_ENABLED = not DISCORD_ENABLED
+        saveSettings()
+        state.settingsMessage = "Discord alerts " .. (DISCORD_ENABLED and "enabled" or "disabled")
+      end
+    end)
+    addButton(32, contentTop + 8, " SET URL ", function()
+      term.setCursorPos(2, contentBottom)
+      term.clearLine()
+      term.setTextColor(colors.yellow)
+      term.write("URL: ")
+      term.setTextColor(theme().text)
+      local url = read()
+      if url and url:find("^https://") then
+        DISCORD_WEBHOOK = url
+        DISCORD_ENABLED = true
+        saveSettings()
+        state.settingsMessage = "Discord Webhook configured!"
+        sendDiscordAlert("GraveSight Discord notifications activated.")
+      else
+        state.settingsMessage = "Invalid Webhook URL (must start with https://)"
+      end
+    end)
 
     if state.settingsMessage ~= "" then
       term.setCursorPos(2, contentBottom)
@@ -820,6 +989,19 @@ local function uiLoop()
         end
       end
       draw()
+    elseif event == "mouse_scroll" then
+      local dir = a
+      if state.activeTab == "log" then
+        local visibleRows = (h - 2) - 4 + 1
+        local totalLines = #state.log
+        local maxScroll = math.max(0, totalLines - visibleRows)
+        if dir < 0 then
+          state.scrollOffset = math.min(state.scrollOffset + 3, maxScroll)
+        elseif dir > 0 then
+          state.scrollOffset = math.max(state.scrollOffset - 3, 0)
+        end
+        draw()
+      end
     elseif event == "gravesight_redraw" then
       draw()
     elseif event == "terminate" then
@@ -830,6 +1012,9 @@ end
 
 -- ============================================================
 -- 10. VERSION & AUTO UPDATE
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] GitHub auto-update system. Downloads remote source,
+-- verifies version tags, creates backups, and performs atomic swaps.
 -- ============================================================
 local function parseVersion(version)
   if type(version) ~= "string" then return nil end
@@ -968,8 +1153,10 @@ setThemeColors()
 
 -- ============================================================
 -- 11. PROGRAM STARTUP
+-- ------------------------------------------------------------
+-- [ DO NOT EDIT ] Entry point. Disables Ctrl+T termination, triggers
+-- boot checks, and executes backgroundLoop and uiLoop concurrently.
 -- ============================================================
--- Block Ctrl+T Termination at the OS level globally
 os.pullEvent = os.pullEventRaw
 
 checkForUpdate(false)
