@@ -1,0 +1,59 @@
+-- ============================================================
+-- DIYU'S GRAVESIGHT // OFFSITE BLACK BOX RECEIVER
+-- ============================================================
+
+local REDNET_CHANNEL = 999
+local LOG_FILE = "blackbox_breaches.log"
+
+-- Disable Ctrl+T termination so griefers can't stop the receiver if found
+os.pullEvent = os.pullEventRaw
+
+-- Peripheral setup
+local modem = nil
+for _, side in ipairs(rs.getSides()) do
+  if peripheral.getType(side) == "modem" then
+    modem = peripheral.wrap(side)
+    break
+  end
+end
+
+if not modem then
+  error("Black Box Error: No Wireless Modem attached!")
+end
+
+-- Open Rednet
+rednet.open(peripheral.getName(modem))
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.green)
+term.clear()
+term.setCursorPos(1, 1)
+
+print("========================================")
+print("   GRAVESIGHT // BLACK BOX ONLINE       ")
+print("   LISTENING ON CHANNEL: " .. REDNET_CHANNEL)
+print("========================================")
+term.setTextColor(colors.white)
+
+while true do
+  local senderID, payload, protocol = rednet.receive(REDNET_CHANNEL)
+  
+  if type(payload) == "table" and payload.system == "GraveSight" then
+    local logLine = string.format("[%s] ALERT from %s: %s", 
+      payload.timestamp or os.date("%Y-%m-%d %H:%M:%S"), 
+      payload.owner or "Unknown", 
+      payload.message or "No payload"
+    )
+
+    -- Print to screen
+    term.setTextColor(colors.yellow)
+    print(logLine)
+
+    -- Save permanently to disk
+    local file = fs.open(LOG_FILE, "a")
+    if file then
+      file.writeLine(logLine)
+      file.close()
+    end
+  end
+end
