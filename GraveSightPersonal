@@ -39,7 +39,7 @@ local DISCORD_WEBHOOK = ""           -- Saved Discord Webhook URL
 local DISCORD_ENABLED = false        -- Discord alert toggle (true/false)
 
 local VERSION = "1.0.0"
-local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/gravesight.lua"
+local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/main/gravesight.lua"
 local UPDATE_INTERVAL = 31536000     -- GitHub update check delay (Startup/Manual only)
 local UPDATE_TEMP = ".gravesight_update.tmp"
 local UPDATE_BACKUP = ".gravesight_backup.lua"
@@ -141,7 +141,6 @@ local function runDramaticWardenBoot()
   for i, step in ipairs(sequence) do
     center(startY + (i - 1), step.text, step.color)
     
-    -- Sub-progress bar effect for dynamic feedback
     local barW = math.min(30, w - 4)
     local barX = math.floor((w - barW) / 2) + 1
     local barY = math.min(h - 1, startY + #sequence + 1)
@@ -156,7 +155,6 @@ local function runDramaticWardenBoot()
     sleep(step.delay)
   end
 
-  -- Ominous visual heartbeat / pulse flash (3.0 seconds total to complete ~15s)
   for pulse = 1, 3 do
     term.setTextColor(pulse % 2 == 1 and colors.cyan or colors.lightBlue)
     center(startY + #sequence + 3, "::: WARDEN SENSORS PULSING :::", pulse % 2 == 1 and colors.cyan or colors.lightBlue)
@@ -169,7 +167,6 @@ local function runDramaticWardenBoot()
 end
 
 local function runFirstSetup()
-  -- Execute dramatic startup
   runDramaticWardenBoot()
 
   term.setBackgroundColor(colors.black)
@@ -277,7 +274,6 @@ loadSetup()
 if not setup.configured then
   runFirstSetup()
 else
-  -- Run boot scan sequence on configured launch as well
   runDramaticWardenBoot()
 end
 
@@ -306,10 +302,6 @@ end
 -- ============================================================
 -- 2. PERIPHERAL SETUP & HARDWARE CHECK
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Automatically detects attached blocks (Geo Scanner,
--- Player Detector, Environment Detector, Chat Box, Wireless Modem).
--- Displays a friendly setup screen if any required block is missing.
--- ============================================================
 local playerDet, envDet, geoScanner, chatBox, modem
 
 local function findPeripheral(possibleNames)
@@ -380,9 +372,6 @@ ensureHardwareAttached()
 -- ============================================================
 -- 3. DETECTION LISTS
 -- ------------------------------------------------------------
--- [ ADVANCED SAFE TO EDIT ] List of Minecraft block and entity IDs
--- monitored by GraveSight. You can add new modded animal or Sculk IDs.
--- ============================================================
 local SCULK_NAMES = {
   ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
   ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true,
@@ -397,9 +386,6 @@ local ANIMAL_TYPES = {
 -- ============================================================
 -- 4. SHARED STATE
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Internal live memory tracking animals, sculk count,
--- present players, log history, and UI tab selections.
--- ============================================================
 local state = {
   animals = 0,
   sculk = 0,
@@ -424,9 +410,6 @@ local checkForUpdate
 -- ============================================================
 -- 5. LOGGING & UTILITY FUNCTIONS
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Handles text log file writes, Discord webhook
--- HTTP posts, offsite Rednet broadcasts, and UI theme switching.
--- ============================================================
 local function timestamp() return os.date("%H:%M:%S") end
 
 local function sendDiscordAlert(alertMsg)
@@ -625,9 +608,6 @@ end
 -- ============================================================
 -- 6. ANIMAL DETECTION
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Queries Environment Detector peripheral to count
--- living animals/mobs within configured radius.
--- ============================================================
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
   if not ok or type(entities) ~= "table" then return nil end
@@ -641,9 +621,6 @@ end
 -- ============================================================
 -- 7. SCULK DETECTION
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Queries Geo Scanner peripheral to detect Sculk
--- blocks, veins, and active Catalysts within scan radius.
--- ============================================================
 local function countSculk()
   local blocks, usedRadius = nil, SCAN_RADIUS
   while usedRadius >= MIN_SCAN_RADIUS do
@@ -666,9 +643,6 @@ end
 -- ============================================================
 -- 8. BACKGROUND MONITORING
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Core async loop. Runs continuously in background
--- to detect player entries/exits, entity loss, and sculk blooms.
--- ============================================================
 local function backgroundLoop()
   state.animals = countAnimals() or 0
   local sc, cat = countSculk()
@@ -679,6 +653,15 @@ local function backgroundLoop()
   local lastUpdateCheck = os.clock()
 
   while true do
+    -- Non-blocking check for incoming private commands from Pocket Remote
+    if modem and rednet.isOpen() then
+      local senderID, msg = rednet.receive(REDNET_CHANNEL, 0)
+      if type(msg) == "table" and msg.system == "GraveSightCmd" and msg.command == "scan" then
+        state.forceUpdate = true
+        addLog("REMOTE: Manual scan requested by ID " .. tostring(senderID))
+      end
+    end
+
     local players = playerDet.getPlayersInRange(RADIUS)
     local nowPresent = {}
     for _, name in ipairs(players) do
@@ -744,9 +727,6 @@ end
 -- ============================================================
 -- 9. USER INTERFACE
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Graphical user interface. Handles tab drawing,
--- mouse clicks, mouse wheel scrolling, buttons, and settings input.
--- ============================================================
 local w, h = term.getSize()
 local buttons = {}
 
@@ -953,7 +933,6 @@ local function draw()
   term.write(string.rep("-", w - 2))
   clearLine(h)
 
-  -- Password-Protected Exit Button
   addButton(2, h, " Exit to Shell ", function()
     term.setBackgroundColor(theme().background)
     term.clear()
@@ -1013,9 +992,6 @@ end
 -- ============================================================
 -- 10. VERSION & AUTO UPDATE
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] GitHub auto-update system. Downloads remote source,
--- verifies version tags, creates backups, and performs atomic swaps.
--- ============================================================
 local function parseVersion(version)
   if type(version) ~= "string" then return nil end
   local a, b, c = version:match("^(%d+)%.(%d+)%.(%d+)$")
@@ -1154,9 +1130,6 @@ setThemeColors()
 -- ============================================================
 -- 11. PROGRAM STARTUP
 -- ------------------------------------------------------------
--- [ DO NOT EDIT ] Entry point. Disables Ctrl+T termination, triggers
--- boot checks, and executes backgroundLoop and uiLoop concurrently.
--- ============================================================
 os.pullEvent = os.pullEventRaw
 
 checkForUpdate(false)
