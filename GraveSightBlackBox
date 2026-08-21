@@ -1,88 +1,137 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // OFFSITE BLACK BOX RECEIVER
+--      DIYU'S GRAVESIGHT // SECURE OFFSITE BLACK BOX
 -- ============================================================
-
-local REDNET_CHANNEL = "999" -- String required for Rednet protocol filter
+local REDNET_CHANNEL = 999
 local LOG_FILE = "blackbox_breaches.log"
-local ADMIN_PASSWORD = "your_password_here" -- Set a password to exit the screen
+local running = true
 
--- Disable Ctrl+T termination so griefers can't stop the receiver if found
+-- [ WARDEN ROUTE ] Block Ctrl+T termination
 os.pullEvent = os.pullEventRaw
 
--- Modern peripheral search
+-- Hardware Init
 local modem = peripheral.find("modem")
-
 if not modem then
-  error("Black Box Error: No Wireless/Ender Modem attached!")
+  term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.red)
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("CRITICAL ERROR: No modem detected.")
+  print("Please attach a Wireless or Ender Modem.")
+  while true do os.pullEvent("modem") end
 end
-
--- Open Rednet on the detected modem
 rednet.open(peripheral.getName(modem))
 
+-- Password Security Hashing
+local function hashPassword(password)
+  local salt = "GraveSight_Salt_2026_Secure"
+  local str = password .. salt
+  local hash = 5381
+  for round = 1, 1000 do
+    for i = 1, #str do
+      hash = ((hash * 33) + string.byte(str, i)) % 2147483647
+    end
+  end
+  return tostring(hash)
+end
+
+local passwordHash = ""
+if fs.exists("blackbox_auth.cfg") then
+  local f = fs.open("blackbox_auth.cfg", "r")
+  passwordHash = f.readLine()
+  f.close()
+else
+  term.setBackgroundColor(colors.black)
+  term.clear()
+  term.setCursorPos(2, 2)
+  term.setTextColor(colors.cyan)
+  term.write("BLACK BOX INITIALIZATION")
+  term.setCursorPos(2, 4)
+  term.setTextColor(colors.white)
+  term.write("Set Admin Password > ")
+  term.setTextColor(colors.lightBlue)
+  local pass = read("*")
+  passwordHash = hashPassword(pass)
+  
+  local f = fs.open("blackbox_auth.cfg", "w")
+  f.writeLine(passwordHash)
+  f.close()
+end
+
+-- UI Setup
 term.setBackgroundColor(colors.black)
-term.setTextColor(colors.green)
 term.clear()
-term.setCursorPos(1, 1)
+local w, h = term.getSize()
 
-print("========================================")
-print("   GRAVESIGHT // BLACK BOX ONLINE       ")
-print("   LISTENING ON PROTOCOL: " .. REDNET_CHANNEL)
-print("========================================")
-term.setTextColor(colors.white)
-print("Press 'Q' to pause logging and exit.")
-print("----------------------------------------")
+local function drawHeader()
+  term.setCursorPos(1, 1)
+  term.setBackgroundColor(colors.gray)
+  term.setTextColor(colors.cyan)
+  term.write(string.rep(" ", w))
+  term.setCursorPos(2, 1)
+  term.write("GRAVESIGHT // SECURE BLACK BOX RECEIVER")
+  term.setBackgroundColor(colors.black)
+end
 
--- We use parallel.waitForAny to run the listener and the exit key checker at the same time
+local function writeLog(logLine)
+  local f = fs.open(LOG_FILE, "a")
+  if f then
+    f.writeLine(logLine)
+    f.close()
+  end
+end
+
+drawHeader()
+local logWindow = window.create(term.current(), 1, 2, w, h - 2)
+local oldTerm = term.redirect(logWindow)
+term.setTextColor(colors.lightGray)
+print("Listening on protocol: " .. REDNET_CHANNEL)
+print("System active and recording...")
+print(string.rep("-", w))
+
+-- Run listener and exit checker concurrently using running flag
 parallel.waitForAny(
   function()
-    while true do
-      -- Listens strictly for broadcasts using protocol "999"
-      local senderID, payload, protocol = rednet.receive(REDNET_CHANNEL)
-      
-      if type(payload) == "table" and payload.system == "GraveSight" then
-        local logLine = string.format("[%s] ALERT from %s: %s", 
-          payload.timestamp or os.date("%Y-%m-%d %H:%M:%S"), 
-          payload.owner or "Unknown", 
-          payload.message or "No payload"
-        )
-
-        -- Print alert to terminal screen
-        term.setTextColor(colors.yellow)
-        print(logLine)
-        term.setTextColor(colors.white)
-
-        -- Permanently save breach event to disk
-        local file = fs.open(LOG_FILE, "a")
-        if file then
-          file.writeLine(logLine)
-          file.close()
+    while running do
+      local sender, msg, prot = rednet.receive()
+      if running and tostring(prot) == tostring(REDNET_CHANNEL) then
+        if type(msg) == "table" and msg.system == "GraveSight" then
+          local formatted = string.format("[%s] %s", msg.timestamp, msg.message)
+          
+          term.setTextColor(colors.red)
+          write(">> INCOMING ALERT (Owner: " .. tostring(msg.owner) .. ")\n")
+          term.setTextColor(colors.white)
+          print(formatted)
+          print(string.rep("-", w))
+          
+          writeLog(formatted)
         end
       end
     end
   end,
-
+  
   function()
-    while true do
+    while running do
       local event, key = os.pullEvent("key")
-      -- key 16 is the 'Q' key on the keyboard
       if key == keys.q then
         term.setTextColor(colors.orange)
         write("\n[EXIT INITIATED] Password: ")
         local input = read("*")
-        
-        if input == ADMIN_PASSWORD then
-          term.setBackgroundColor(colors.black)
-          term.setTextColor(colors.white)
-          term.clear()
-          term.setCursorPos(1,1)
-          print("Black Box terminal closed. Logging suspended.")
-          return -- This breaks the parallel loop, exiting the program safely
+        if hashPassword(input) == passwordHash then
+          running = false -- Signals loops to stop cleanly
         else
           term.setTextColor(colors.red)
           print("ACCESS DENIED. Resuming logging...")
-          term.setTextColor(colors.white)
+          term.setTextColor(colors.lightGray)
         end
       end
     end
   end
 )
+
+-- Clean Exit Restoration
+term.redirect(oldTerm)
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.clear()
+term.setCursorPos(1, 1)
+print("Black Box terminal closed safely.")
