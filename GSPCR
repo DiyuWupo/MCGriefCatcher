@@ -1,0 +1,78 @@
+-- ============================================================
+-- GRAVESIGHT // POCKET REMOTE TERMINAL (Public Edition)
+-- ============================================================
+-- Displays live breach feeds and alerts from your GraveSight base PC
+-- directly on your handheld Pocket PC.
+-- ============================================================
+
+local REDNET_CHANNEL = 999
+local LOG_FILE = "pocket_alerts.log"
+
+-- Block Ctrl+T termination on handheld
+os.pullEvent = os.pullEventRaw
+
+-- Find Pocket Modem
+local modem = peripheral.find("modem")
+if not modem then
+  error("Error: Pocket Computer with Ender/Wireless Modem required!")
+end
+
+rednet.open(peripheral.getName(modem))
+
+local w, h = term.getSize()
+
+local function drawHeader()
+  term.setBackgroundColor(colors.black)
+  term.clear()
+  term.setCursorPos(1, 1)
+  term.setBackgroundColor(colors.blue)
+  term.setTextColor(colors.white)
+  term.write(" GRAVESIGHT REMOTE ")
+  
+  term.setBackgroundColor(colors.black)
+  term.setCursorPos(1, 2)
+  term.setTextColor(colors.gray)
+  term.write(string.rep("-", w))
+end
+
+drawHeader()
+term.setCursorPos(1, 4)
+term.setTextColor(colors.green)
+print("[ONLINE] Monitoring...")
+print("Channel: " .. REDNET_CHANNEL)
+
+while true do
+  local event, senderID, payload, protocol = os.pullEventRaw()
+  
+  if event == "rednet_message" and type(payload) == "table" and payload.system == "GraveSight" then
+    drawHeader()
+    
+    term.setCursorPos(1, 4)
+    term.setTextColor(colors.cyan)
+    print("TIME: " .. (payload.timestamp or os.date("%H:%M:%S")))
+    
+    term.setCursorPos(1, 5)
+    term.setTextColor(colors.lightGray)
+    print("OWNER: " .. (payload.owner or "Unknown"))
+    
+    term.setCursorPos(1, 7)
+    term.setTextColor(colors.yellow)
+    print("ALERT:")
+    
+    term.setCursorPos(1, 8)
+    term.setTextColor(colors.white)
+    print(payload.message or "Unknown alert")
+    
+    -- Sound audio chime on alert
+    if computer and computer.beep then
+      computer.beep(1000, 0.2)
+    end
+    
+    -- Log breach locally to Pocket PC storage
+    local f = fs.open(LOG_FILE, "a")
+    if f then
+      f.writeLine("[" .. (payload.timestamp or os.date("%H:%M:%S")) .. "] " .. (payload.message or ""))
+      f.close()
+    end
+  end
+end
