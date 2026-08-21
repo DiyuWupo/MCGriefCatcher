@@ -21,9 +21,6 @@
 -- ============================================================
 -- 1. CONFIGURATION & SECURITY CORE
 -- ------------------------------------------------------------
--- [ SAFE TO EDIT ] Change default starting values here if desired.
--- You can also tweak these live in game via the Settings tab.
--- ============================================================
 local YOUR_NAME = "DiyuWupo"         -- Your Minecraft username
 local RADIUS = 50                    -- Player/entity monitoring radius (blocks)
 local SCAN_RADIUS = 16               -- Geo Scanner block radius
@@ -55,7 +52,6 @@ local setup = {
 
 local failedAttempts = 0
 
--- Iterated Salted Hash Algorithm
 local function hashPassword(password)
   local salt = "GraveSight_Salt_2026_Secure"
   local str = password .. salt
@@ -653,12 +649,16 @@ local function backgroundLoop()
   local lastUpdateCheck = os.clock()
 
   while true do
-    -- Non-blocking check for incoming private commands from Pocket Remote
+    -- Robust check for incoming private remote commands
     if modem and rednet.isOpen() then
-      local senderID, msg = rednet.receive(REDNET_CHANNEL, 0)
-      if type(msg) == "table" and msg.system == "GraveSightCmd" and msg.command == "scan" then
-        state.forceUpdate = true
-        addLog("REMOTE: Manual scan requested by ID " .. tostring(senderID))
+      local ok, senderID, msg, protocol = pcall(function()
+        return rednet.receive(REDNET_CHANNEL, 0)
+      end)
+      if ok and senderID and type(msg) == "table" then
+        if msg.system == "GraveSightCmd" and msg.command == "scan" then
+          state.forceUpdate = true
+          addLog("REMOTE: Manual scan requested by ID " .. tostring(senderID))
+        end
       end
     end
 
@@ -973,13 +973,25 @@ local function uiLoop()
       if state.activeTab == "log" then
         local visibleRows = (h - 2) - 4 + 1
         local totalLines = #state.log
-        local maxScroll = math.max(0, totalLines - visibleRows)
-        if dir < 0 then
-          state.scrollOffset = math.min(state.scrollOffset + 3, maxScroll)
-        elseif dir > 0 then
-          state.scrollOffset = math.max(state.scrollOffset - 3, 0)
+        local startIdx = math.max(1, totalLines - visibleRows + 1 - state.scrollOffset)
+        local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
+        local row = contentTop
+        for i = startIdx, endIdx do
+          term.setBackgroundColor(theme().background)
+          term.setTextColor(theme().text)
+          term.setCursorPos(2, row)
+          local line = state.log[i]
+          if #line > w - 2 then line = line:sub(1, w - 2) end
+          term.write(line)
+          row = row + 1
         end
-        draw()
+
+        addButton(w - 12, 2, " Up ", function()
+          state.scrollOffset = math.min(state.scrollOffset + visibleRows, math.max(0, totalLines - visibleRows))
+        end)
+        addButton(w - 6, 2, " Down ", function()
+          state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
+        end)
       end
     elseif event == "gravesight_redraw" then
       draw()
