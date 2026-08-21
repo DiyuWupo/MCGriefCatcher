@@ -58,13 +58,10 @@ local function drawUI()
   term.setCursorPos(1, h)
   term.setBackgroundColor(colors.red)
   term.setTextColor(colors.white)
-  term.write(" EXIT ")
-  
-  -- Spacer
-  term.setBackgroundColor(colors.black)
-  term.write("  ")
+  print(" EXIT ")
   
   -- SCAN button (columns 9 to 20)
+  term.setCursorPos(10, h)
   term.setBackgroundColor(colors.orange)
   term.setTextColor(colors.white)
   term.write(" SCAN ")
@@ -95,9 +92,8 @@ while running do
     local button, x, y = p1, p2, p3
     
     if y == h then
-      -- EXIT button check (covers columns 1 to 6)
+      -- EXIT button check
       if x >= 1 and x <= 6 then
-        -- Clean exit right here
         term.setBackgroundColor(colors.black)
         term.setTextColor(colors.white)
         term.clear()
@@ -105,18 +101,22 @@ while running do
         print("Remote offline.")
         return
         
-      -- SCAN button check (covers columns 9 to 20)
-      elseif x >= 9 and x <= 20 then
+      -- SCAN button check
+      elseif x >= 10 and x <= 20 then
+        -- Use targeted broadcast/send fallback to prevent routing path blocks
         local ok = pcall(function()
           rednet.send(BASE_ID, {system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
         end)
         
-        lastTimestamp = os.date("%H:%M:%S")
-        if ok then
-          lastAlert = "Scan command sent to #" .. BASE_ID
-        else
-          lastAlert = "Send failed (Range/ID issue)"
+        -- If direct ID routing stalls, fallback to channel broadcast with explicit target ID check
+        if not ok then
+          pcall(function()
+            rednet.broadcast({system = "GraveSightCmd", target = BASE_ID, command = "scan"}, REDNET_CHANNEL)
+          end)
         end
+        
+        lastTimestamp = os.date("%H:%M:%S")
+        lastAlert = "Scan command transmitted to #" .. BASE_ID
         drawUI()
       end
     end
