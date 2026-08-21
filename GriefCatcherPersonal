@@ -56,6 +56,7 @@ local state = {
   log = {},          -- array of strings, newest last
   activeTab = "status",
   scrollOffset = 0,  -- for log tab
+  forceUpdate = false,
 }
 
 local function timestamp() return os.date("%H:%M:%S") end
@@ -139,7 +140,7 @@ local function backgroundLoop()
     end
     if currentAnimals then state.animals = currentAnimals end
 
-    if os.clock() - lastScanTime >= SCAN_INTERVAL then
+    if os.clock() - lastScanTime >= SCAN_INTERVAL or state.forceUpdate then
       lastScanTime = os.clock()
       local newSculk, newCat = countSculk()
       if newSculk then
@@ -154,6 +155,11 @@ local function backgroundLoop()
         state.sculk = newSculk
         state.hasCatalyst = newCat or false
       end
+    end
+
+    if state.forceUpdate then
+      addLog("Manual refresh triggered.")
+      state.forceUpdate = false
     end
 
     os.queueEvent("pw_redraw")
@@ -193,10 +199,10 @@ local function draw()
   -- Tabs
   clearLine(2)
   addButton(2, 2, " Status ", function() state.activeTab = "status" end,
-    state.activeTab == "status" and colors.yellow or colors.gray,
+    state.activeTab == "status" and colors.cyan or colors.gray,
     state.activeTab == "status" and colors.black or colors.white)
   addButton(11, 2, " Log ", function() state.activeTab = "log" end,
-    state.activeTab == "log" and colors.yellow or colors.gray,
+    state.activeTab == "log" and colors.cyan or colors.gray,
     state.activeTab == "log" and colors.black or colors.white)
 
   -- Content area: rows 4 to h-2
@@ -209,6 +215,9 @@ local function draw()
     term.write("Animals: " .. state.animals)
     term.setCursorPos(2, contentTop + 1)
     term.write("Sculk blocks: " .. state.sculk .. (state.hasCatalyst and " (CATALYST!)" or ""))
+
+    addButton(w - 12, 2, " Update ", function() state.forceUpdate = true end)
+
     term.setCursorPos(2, contentTop + 3)
     term.write("Players nearby:")
     local row = contentTop + 4
