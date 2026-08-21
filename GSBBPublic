@@ -1,0 +1,61 @@
+-- ============================================================
+-- GRAVESIGHT // OFFSITE BLACK BOX RECEIVER (Public Edition)
+-- ============================================================
+-- Listens for incoming GraveSight Rednet alerts on channel 999
+-- and writes them to an immutable log file on disk.
+-- ============================================================
+
+local REDNET_CHANNEL = 999
+local LOG_FILE = "blackbox_breaches.log"
+
+-- Block Ctrl+T termination hacks
+os.pullEvent = os.pullEventRaw
+
+-- Find attached modem
+local modem = nil
+for _, side in ipairs(rs.getSides()) do
+  if peripheral.getType(side) == "modem" then
+    modem = peripheral.wrap(side)
+    break
+  end
+end
+
+if not modem then
+  error("Black Box Error: No Wireless/Ender Modem attached!")
+end
+
+rednet.open(peripheral.getName(modem))
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.cyan)
+term.clear()
+term.setCursorPos(1, 1)
+
+print("========================================")
+print("   GRAVESIGHT // BLACK BOX ONLINE       ")
+print("   LISTENING ON CHANNEL: " .. REDNET_CHANNEL)
+print("========================================")
+term.setTextColor(colors.white)
+
+while true do
+  local event, senderID, payload, protocol = os.pullEventRaw()
+
+  if event == "rednet_message" and type(payload) == "table" and payload.system == "GraveSight" then
+    local logLine = string.format("[%s] Owner: %s | %s", 
+      payload.timestamp or os.date("%Y-%m-%d %H:%M:%S"), 
+      payload.owner or "Unknown", 
+      payload.message or "No payload"
+    )
+
+    -- Display breach alert on screen
+    term.setTextColor(colors.yellow)
+    print(logLine)
+
+    -- Permanently save log entry
+    local file = fs.open(LOG_FILE, "a")
+    if file then
+      file.writeLine(logLine)
+      file.close()
+    end
+  end
+end
