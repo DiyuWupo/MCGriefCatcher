@@ -1,74 +1,74 @@
--- pen_watch_v3.lua
--- Requires: Player Detector, Environment Detector, Geo Scanner, Chat Box (all Advanced Peripherals)
--- Place all peripherals near/attached to the same Computer (wired modem + cables work too)
+-- pen_watch_ui.lua
+-- Requires: Advanced (gold) Computer for color + mouse clicks
+-- Requires: Player Detector, Environment Detector, Geo Scanner, Chat Box (Advanced Peripherals)
 
--- Helper: find a peripheral by checking every connected name/side directly,
--- since peripheral.find() can miss it if the type string differs slightly
--- between Advanced Peripherals versions.
+local YOUR_NAME = "DiyuWupo"
+local RADIUS = 50
+local SCAN_RADIUS = 16
+local MIN_SCAN_RADIUS = 8
+local LOG_FILE = "penwatch.log"
+local CHECK_INTERVAL = 2
+local SCAN_INTERVAL = 12
+local MAX_LOG_ENTRIES = 300
+
+if not term.isColor() then
+  print("WARNING: This needs an Advanced (gold) Computer for colors/clicks.")
+  print("It may still run, but will look wrong. Press any key to continue.")
+  os.pullEvent("key")
+end
+
+-- === Peripheral setup ===
 local function findPeripheral(possibleNames)
   for _, name in ipairs(peripheral.getNames()) do
     local ptype = peripheral.getType(name)
     for _, candidate in ipairs(possibleNames) do
-      if ptype == candidate then
-        return peripheral.wrap(name), ptype, name
-      end
+      if ptype == candidate then return peripheral.wrap(name) end
     end
   end
   return nil
 end
 
-local playerDet, playerDetType = findPeripheral({"playerDetector", "player_detector", "AdvancedPeripherals:player_detector"})
-local envDet, envDetType = findPeripheral({"environmentDetector", "environment_detector"})
-local geoScanner, geoScannerType = findPeripheral({"geoScanner", "geo_scanner"})
-local chatBox, chatBoxType = findPeripheral({"chatBox", "chat_box"})
+local playerDet = findPeripheral({"playerDetector", "player_detector"})
+local envDet = findPeripheral({"environmentDetector", "environment_detector"})
+local geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
+local chatBox = findPeripheral({"chatBox", "chat_box"})
 
-local RADIUS = 50          -- player/animal detection radius (Player Detector handles 500+ fine)
-local SCAN_RADIUS = 16     -- geo scanner radius, capped here
-local MIN_SCAN_RADIUS = 8  -- if 16 is rejected, we'll step down toward this until a scan succeeds
-local YOUR_NAME = "DiyuWupo"  -- your in-game name
-local LOG_FILE = "penwatch.log"
-local CHECK_INTERVAL = 2
-local SCAN_INTERVAL = 12   -- geo scanner has a cooldown, don't spam it
-
--- Debug: show exactly what was found, so a mismatch is easy to spot
-print("--- Peripheral check ---")
-print("All connected: ")
-for _, name in ipairs(peripheral.getNames()) do
-  print("  " .. name .. " (" .. peripheral.getType(name) .. ")")
-end
-print("Player Detector: " .. (playerDet and "OK (" .. playerDetType .. ")" or "NOT FOUND"))
-print("Environment Detector: " .. (envDet and "OK (" .. envDetType .. ")" or "NOT FOUND"))
-print("Geo Scanner: " .. (geoScanner and "OK (" .. geoScannerType .. ")" or "NOT FOUND"))
-print("Chat Box: " .. (chatBox and "OK (" .. chatBoxType .. ")" or "not found (optional)"))
-print("------------------------")
-
-if not playerDet then error("No Player Detector found. See the list above - if it's there under a different name, tell Claude the exact name shown.") end
-if not envDet then error("No Environment Detector found. See the list above - if it's there under a different name, tell Claude the exact name shown.") end
-if not geoScanner then error("No Geo Scanner found. See the list above - if it's there under a different name, tell Claude the exact name shown.") end
+if not playerDet then error("No Player Detector found.") end
+if not envDet then error("No Environment Detector found.") end
+if not geoScanner then error("No Geo Scanner found.") end
 
 local SCULK_NAMES = {
-  ["minecraft:sculk"] = true,
-  ["minecraft:sculk_catalyst"] = true,
-  ["minecraft:sculk_sensor"] = true,
-  ["minecraft:sculk_shrieker"] = true,
+  ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
+  ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true,
   ["minecraft:sculk_vein"] = true,
 }
-
 local ANIMAL_TYPES = {
-  ["minecraft:cow"] = true,
-  ["minecraft:sheep"] = true,
-  ["minecraft:pig"] = true,
-  ["minecraft:chicken"] = true,
-  ["minecraft:horse"] = true,
+  ["minecraft:cow"] = true, ["minecraft:sheep"] = true, ["minecraft:pig"] = true,
+  ["minecraft:chicken"] = true, ["minecraft:horse"] = true,
 }
 
-local function timestamp() return os.date("%Y-%m-%d %H:%M:%S") end
+-- === Shared state ===
+local state = {
+  animals = 0,
+  sculk = 0,
+  hasCatalyst = false,
+  present = {},      -- name -> enter timestamp
+  log = {},          -- array of strings, newest last
+  activeTab = "status",
+  scrollOffset = 0,  -- for log tab
+}
 
-local function logLine(line)
-  print(line)
+local function timestamp() return os.date("%H:%M:%S") end
+
+local function addLog(line)
+  local full = os.date("%Y-%m-%d %H:%M:%S") .. " | " .. line
+  table.insert(state.log, full)
+  if #state.log > MAX_LOG_ENTRIES then table.remove(state.log, 1) end
   local f = fs.open(LOG_FILE, "a")
-  f.write(line .. "\n")
+  f.write(full .. "\n")
   f.close()
+  -- auto-scroll to bottom when new entries arrive
+  state.scrollOffset = 0
 end
 
 local function countAnimals()
@@ -81,36 +81,17 @@ local function countAnimals()
   return count
 end
 
-local lastWorkingRadius = nil
-
+local lastWorkingRadius = SCAN_RADIUS
 local function countSculk()
-  -- try SCAN_RADIUS first; if the server config caps it lower, step down until a scan succeeds
-  local blocks = nil
-  local usedRadius = SCAN_RADIUS
+  local blocks, usedRadius = nil, SCAN_RADIUS
   while usedRadius >= MIN_SCAN_RADIUS do
     local ok, result = pcall(function() return geoScanner.scan(usedRadius) end)
-    if ok and type(result) == "table" then
-      blocks = result
-      break
-    end
+    if ok and type(result) == "table" then blocks = result break end
     usedRadius = usedRadius - 8
   end
-
-  if not blocks then
-    logLine(timestamp() .. " | Geo Scanner failed even at radius " .. MIN_SCAN_RADIUS .. " - check FE/fuel or server-config max range.")
-    return nil
-  end
-
-  if usedRadius < SCAN_RADIUS then
-    -- only warn once per drop, not every single scan
-    if usedRadius ~= (lastWorkingRadius or SCAN_RADIUS) then
-      logLine(timestamp() .. " | Note: server capped scan radius to " .. usedRadius .. " (requested " .. SCAN_RADIUS .. ")")
-    end
-  end
+  if not blocks then return nil end
   lastWorkingRadius = usedRadius
-
-  local count = 0
-  local hasCatalyst = false
+  local count, hasCatalyst = 0, false
   for _, b in ipairs(blocks) do
     if SCULK_NAMES[b.name] then
       count = count + 1
@@ -120,65 +101,193 @@ local function countSculk()
   return count, hasCatalyst
 end
 
-local present = {}
-local lastAnimalCount = countAnimals() or 0
-local lastSculkCount, hasCatalyst = countSculk()
-lastSculkCount = lastSculkCount or 0
+-- === Background watcher (runs forever, updates `state`) ===
+local function backgroundLoop()
+  state.animals = countAnimals() or 0
+  local sc, cat = countSculk()
+  state.sculk, state.hasCatalyst = sc or 0, cat or false
+  addLog("Started. Animals: " .. state.animals .. " | Sculk: " .. state.sculk)
 
-logLine(timestamp() .. " | Started. Animals: " .. lastAnimalCount .. " | Sculk blocks: " .. lastSculkCount .. (hasCatalyst and " (catalyst present!)" or ""))
-
-local lastScanTime = os.clock()
-
-while true do
-  -- player presence
-  local players = playerDet.getPlayersInRange(RADIUS)
-  local nowPresent = {}
-  for _, name in ipairs(players) do
-    if name ~= YOUR_NAME then
-      nowPresent[name] = true
-      if not present[name] then
-        present[name] = timestamp()
-        logLine(timestamp() .. " | ENTER: " .. name)
+  local lastScanTime = os.clock()
+  while true do
+    local players = playerDet.getPlayersInRange(RADIUS)
+    local nowPresent = {}
+    for _, name in ipairs(players) do
+      if name ~= YOUR_NAME then
+        nowPresent[name] = true
+        if not state.present[name] then
+          state.present[name] = timestamp()
+          addLog("ENTER: " .. name)
+        end
       end
     end
-  end
-  for name, enterTime in pairs(present) do
-    if not nowPresent[name] then
-      logLine(timestamp() .. " | EXIT:  " .. name .. " (since " .. enterTime .. ")")
-      present[name] = nil
-    end
-  end
-
-  -- animal count
-  local currentAnimals = countAnimals()
-  if currentAnimals and currentAnimals < lastAnimalCount then
-    local drop = lastAnimalCount - currentAnimals
-    local suspects = {}
-    for name, _ in pairs(present) do table.insert(suspects, name) end
-    local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby"
-    local msg = timestamp() .. " | ALERT: Lost " .. drop .. " animal(s). Nearby: " .. suspectStr
-    logLine(msg)
-    if chatBox then chatBox.sendMessage(msg, "Pen Watch", "&4") end
-  end
-  if currentAnimals then lastAnimalCount = currentAnimals end
-
-  -- sculk scan (throttled to avoid cooldown errors)
-  if os.clock() - lastScanTime >= SCAN_INTERVAL then
-    lastScanTime = os.clock()
-    local newSculkCount, newHasCatalyst = countSculk()
-    if newSculkCount then
-      if newSculkCount > lastSculkCount then
-        local grew = newSculkCount - lastSculkCount
-        local suspects = {}
-        for name, _ in pairs(present) do table.insert(suspects, name) end
-        local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby (likely natural catalyst spread from a nearby death)"
-        local msg = timestamp() .. " | SCULK BLOOM: +" .. grew .. " sculk block(s). Nearby: " .. suspectStr
-        logLine(msg)
-        if chatBox then chatBox.sendMessage(msg, "Sculk Alert", "&5") end
+    for name, enterTime in pairs(state.present) do
+      if not nowPresent[name] then
+        addLog("EXIT:  " .. name .. " (since " .. enterTime .. ")")
+        state.present[name] = nil
       end
-      lastSculkCount = newSculkCount
     end
+
+    local currentAnimals = countAnimals()
+    if currentAnimals and currentAnimals < state.animals then
+      local drop = state.animals - currentAnimals
+      local suspects = {}
+      for name, _ in pairs(state.present) do table.insert(suspects, name) end
+      local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby"
+      addLog("ALERT: Lost " .. drop .. " animal(s). Nearby: " .. suspectStr)
+      if chatBox then chatBox.sendMessage("Lost " .. drop .. " animal(s)! Nearby: " .. suspectStr, "Pen Watch", "&4") end
+    end
+    if currentAnimals then state.animals = currentAnimals end
+
+    if os.clock() - lastScanTime >= SCAN_INTERVAL then
+      lastScanTime = os.clock()
+      local newSculk, newCat = countSculk()
+      if newSculk then
+        if newSculk > state.sculk then
+          local grew = newSculk - state.sculk
+          local suspects = {}
+          for name, _ in pairs(state.present) do table.insert(suspects, name) end
+          local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby (likely catalyst spread)"
+          addLog("SCULK BLOOM: +" .. grew .. ". Nearby: " .. suspectStr)
+          if chatBox then chatBox.sendMessage("Sculk bloom +" .. grew .. "! Nearby: " .. suspectStr, "Sculk Alert", "&5") end
+        end
+        state.sculk = newSculk
+        state.hasCatalyst = newCat or false
+      end
+    end
+
+    os.queueEvent("pw_redraw")
+    sleep(CHECK_INTERVAL)
+  end
+end
+
+-- === UI drawing ===
+local w, h = term.getSize()
+local buttons = {}
+
+local function addButton(x, y, text, action, bg, fg)
+  term.setCursorPos(x, y)
+  term.setBackgroundColor(bg or colors.gray)
+  term.setTextColor(fg or colors.white)
+  term.write(text)
+  table.insert(buttons, {x1 = x, x2 = x + #text - 1, y = y, action = action})
+end
+
+local function clearLine(y, bg)
+  term.setCursorPos(1, y)
+  term.setBackgroundColor(bg or colors.black)
+  term.write(string.rep(" ", w))
+end
+
+local function draw()
+  buttons = {}
+  term.setBackgroundColor(colors.black)
+  term.clear()
+
+  -- Header
+  clearLine(1, colors.blue)
+  term.setCursorPos(2, 1)
+  term.setTextColor(colors.white)
+  term.write("Pen Watch")
+
+  -- Tabs
+  clearLine(2)
+  addButton(2, 2, " Status ", function() state.activeTab = "status" end,
+    state.activeTab == "status" and colors.yellow or colors.gray,
+    state.activeTab == "status" and colors.black or colors.white)
+  addButton(11, 2, " Log ", function() state.activeTab = "log" end,
+    state.activeTab == "log" and colors.yellow or colors.gray,
+    state.activeTab == "log" and colors.black or colors.white)
+
+  -- Content area: rows 4 to h-2
+  local contentTop, contentBottom = 4, h - 2
+
+  if state.activeTab == "status" then
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.setCursorPos(2, contentTop)
+    term.write("Animals: " .. state.animals)
+    term.setCursorPos(2, contentTop + 1)
+    term.write("Sculk blocks: " .. state.sculk .. (state.hasCatalyst and " (CATALYST!)" or ""))
+    term.setCursorPos(2, contentTop + 3)
+    term.write("Players nearby:")
+    local row = contentTop + 4
+    local any = false
+    for name, since in pairs(state.present) do
+      if row <= contentBottom then
+        term.setCursorPos(4, row)
+        term.setTextColor(colors.orange)
+        term.write(name .. " (since " .. since .. ")")
+        row = row + 1
+        any = true
+      end
+    end
+    if not any then
+      term.setCursorPos(4, row)
+      term.setTextColor(colors.gray)
+      term.write("(none)")
+    end
+  else -- log tab
+    term.setTextColor(colors.white)
+    local visibleRows = contentBottom - contentTop + 1
+    local totalLines = #state.log
+    local startIdx = math.max(1, totalLines - visibleRows + 1 - state.scrollOffset)
+    local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
+    local row = contentTop
+    for i = startIdx, endIdx do
+      term.setCursorPos(2, row)
+      local line = state.log[i]
+      if #line > w - 2 then line = line:sub(1, w - 2) end
+      term.write(line)
+      row = row + 1
+    end
+
+    -- scroll buttons
+    addButton(w - 12, 2, " Up ", function()
+      state.scrollOffset = math.min(state.scrollOffset + visibleRows, math.max(0, totalLines - visibleRows))
+    end)
+    addButton(w - 6, 2, " Down ", function()
+      state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0)
+    end)
   end
 
-  sleep(CHECK_INTERVAL)
+  -- Footer
+  clearLine(h - 1, colors.gray)
+  term.setCursorPos(2, h - 1)
+  term.setTextColor(colors.white)
+  term.write(string.rep("-", w - 2))
+  clearLine(h)
+  addButton(2, h, " Quit ", function() error("__QUIT__") end, colors.red, colors.white)
+end
+
+local function uiLoop()
+  draw()
+  while true do
+    local event, a, b, c = os.pullEvent()
+    if event == "mouse_click" then
+      local x, y = b, c
+      for _, btn in ipairs(buttons) do
+        if y == btn.y and x >= btn.x1 and x <= btn.x2 then
+          btn.action()
+        end
+      end
+      draw()
+    elseif event == "pw_redraw" then
+      draw()
+    end
+  end
+end
+
+local ok, err = pcall(function()
+  parallel.waitForAny(backgroundLoop, uiLoop)
+end)
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.clear()
+term.setCursorPos(1, 1)
+if err == "__QUIT__" then
+  print("Pen Watch stopped.")
+else
+  print("Pen Watch crashed: " .. tostring(err))
 end
