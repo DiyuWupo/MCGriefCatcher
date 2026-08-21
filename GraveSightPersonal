@@ -1,21 +1,51 @@
--- gravesight.lua
--- Requires: Advanced (gold) Computer for color + mouse clicks
--- Requires: Player Detector, Environment Detector, Geo Scanner, Chat Box (Advanced Peripherals)
+-- ============================================================
+-- Diyu's GraveSight
+-- ============================================================
+-- Personal Minecraft grief-detection and area-monitoring system.
+--
+-- CODE MAP
+--   1. Configuration
+--   2. Peripheral Setup
+--   3. Detection Lists
+--   4. Shared State
+--   5. Logging & Utility Functions
+--   6. Animal Detection
+--   7. Sculk Detection
+--   8. Background Monitoring
+--   9. User Interface
+--  10. Version & Auto Update
+--  11. Program Startup
+--
+-- Required:
+--   * Advanced (gold) Computer for colors and mouse controls
+--   * Player Detector
+--   * Environment Detector
+--   * Geo Scanner
+--   * Chat Box (optional; used for chat alerts)
+-- ============================================================
 
-local YOUR_NAME = "DiyuWupo"
-local RADIUS = 50
-local SCAN_RADIUS = 16
-local MIN_SCAN_RADIUS = 8
-local LOG_FILE = "gravesight.log"
+-- ============================================================
+-- 1. CONFIGURATION
+-- ============================================================
+-- These are the settings most likely to be edited.
+-- ============================================================
+
+local YOUR_NAME = "DiyuWupo"       -- Your Minecraft username
+local RADIUS = 50                    -- Player/entity monitoring radius
+local SCAN_RADIUS = 16               -- Geo Scanner radius
+local MIN_SCAN_RADIUS = 8            -- Smallest fallback scan radius
+local LOG_FILE = "gravesight.log"    -- Persistent log filename
+local CHECK_INTERVAL = 2             -- Main monitoring loop delay (seconds)
+local SCAN_INTERVAL = 12             -- Sculk scan interval (seconds)
+local MAX_LOG_ENTRIES = 300          -- Log entries kept in memory
+
+-- Update settings are documented again in Section 10.
 local VERSION = "1.0.0"
 local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/refs/heads/main/gravesight.lua"
-local UPDATE_INTERVAL = 600
+local UPDATE_INTERVAL = 600          -- GitHub check interval (seconds)
 local UPDATE_TEMP = ".gravesight_update.tmp"
 local UPDATE_BACKUP = ".gravesight_backup.lua"
 local PROGRAM_PATH = shell.getRunningProgram()
-local CHECK_INTERVAL = 2
-local SCAN_INTERVAL = 12
-local MAX_LOG_ENTRIES = 300
 
 if not term.isColor() then
   print("WARNING: This needs an Advanced (gold) Computer for colors/clicks.")
@@ -23,7 +53,9 @@ if not term.isColor() then
   os.pullEvent("key")
 end
 
--- === Peripheral setup ===
+-- ============================================================
+-- 2. PERIPHERAL SETUP
+-- ============================================================
 local function findPeripheral(possibleNames)
   for _, name in ipairs(peripheral.getNames()) do
     local ptype = peripheral.getType(name)
@@ -43,6 +75,12 @@ if not playerDet then error("No Player Detector found.") end
 if not envDet then error("No Environment Detector found.") end
 if not geoScanner then error("No Geo Scanner found.") end
 
+-- ============================================================
+-- 3. DETECTION LISTS
+-- ============================================================
+-- Add/remove Minecraft IDs here to customize what GraveSight watches.
+-- ============================================================
+
 local SCULK_NAMES = {
   ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true,
   ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true,
@@ -53,7 +91,9 @@ local ANIMAL_TYPES = {
   ["minecraft:chicken"] = true, ["minecraft:horse"] = true,
 }
 
--- === Shared state ===
+-- ============================================================
+-- 4. SHARED STATE
+-- ============================================================
 local state = {
   animals = 0,
   sculk = 0,
@@ -70,6 +110,10 @@ local state = {
   restartForUpdate = false,
 }
 
+-- ============================================================
+-- 5. LOGGING & UTILITY FUNCTIONS
+-- ============================================================
+
 local function timestamp() return os.date("%H:%M:%S") end
 
 local function addLog(line)
@@ -83,6 +127,11 @@ local function addLog(line)
   state.scrollOffset = 0
 end
 
+-- ============================================================
+-- 6. ANIMAL DETECTION
+-- ============================================================
+-- Counts configured animal types within RADIUS.
+
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
   if not ok or type(entities) ~= "table" then return nil end
@@ -92,6 +141,11 @@ local function countAnimals()
   end
   return count
 end
+
+-- ============================================================
+-- 7. SCULK DETECTION
+-- ============================================================
+-- Counts configured sculk blocks and detects catalysts.
 
 local lastWorkingRadius = SCAN_RADIUS
 local function countSculk()
@@ -113,7 +167,9 @@ local function countSculk()
   return count, hasCatalyst
 end
 
--- === Background watcher ===
+-- ============================================================
+-- 8. BACKGROUND MONITORING
+-- ============================================================
 local function backgroundLoop()
   state.animals = countAnimals() or 0
   local sc, cat = countSculk()
@@ -188,7 +244,9 @@ local function backgroundLoop()
   end
 end
 
--- === UI drawing ===
+-- ============================================================
+-- 9. USER INTERFACE
+-- ============================================================
 local w, h = term.getSize()
 local buttons = {}
 
@@ -215,7 +273,7 @@ local function draw()
   clearLine(1, colors.blue)
   term.setCursorPos(2, 1)
   term.setTextColor(colors.white)
-  term.write("GRAVESIGHT v" .. VERSION)
+  term.write("Diyu's GraveSight v" .. VERSION)
 
   -- Tabs
   clearLine(2)
@@ -255,7 +313,8 @@ local function draw()
     for name, since in pairs(state.present) do
       if row <= contentBottom then
         term.setCursorPos(4, row)
-        term.setTextColor(colors.orange)
+        term.setBackgroundColor(colors.black)
+        term.setTextColor(colors.white)
         term.write(name .. " (since " .. since .. ")")
         row = row + 1
         any = true
@@ -267,6 +326,7 @@ local function draw()
       term.write("(none)")
     end
   else -- log tab
+    term.setBackgroundColor(colors.black)
     term.setTextColor(colors.white)
     local visibleRows = contentBottom - contentTop + 1
     local totalLines = #state.log
@@ -274,6 +334,8 @@ local function draw()
     local endIdx = math.min(totalLines, startIdx + visibleRows - 1)
     local row = contentTop
     for i = startIdx, endIdx do
+      term.setBackgroundColor(colors.black)
+      term.setTextColor(colors.white)
       term.setCursorPos(2, row)
       local line = state.log[i]
       if #line > w - 2 then line = line:sub(1, w - 2) end
@@ -316,6 +378,161 @@ local function uiLoop()
     end
   end
 end
+
+
+-- ============================================================
+-- 10. VERSION & AUTO UPDATE
+-- ============================================================
+-- Downloads updates to a temporary file, verifies the version,
+-- backs up the current program, installs the update, then verifies
+-- the installed file. Failed installs restore the backup.
+-- ============================================================
+
+local function parseVersion(version)
+  if type(version) ~= "string" then return nil end
+  local a, b, c = version:match("^(%d+)%.(%d+)%.(%d+)$")
+  if not a then return nil end
+  return tonumber(a), tonumber(b), tonumber(c)
+end
+
+local function isVersionNewer(remote, localVersion)
+  local ra, rb, rc = parseVersion(remote)
+  local la, lb, lc = parseVersion(localVersion)
+  if not ra or not la then return false end
+  if ra ~= la then return ra > la end
+  if rb ~= lb then return rb > lb end
+  return rc > lc
+end
+
+local function getVersionFromSource(source)
+  if type(source) ~= "string" then return nil end
+  return source:match('local%s+VERSION%s*=%s*["\']([^"\']+)["\']')
+end
+
+local function checkForUpdate(manual)
+  if not http then
+    state.updateStatus = "HTTP unavailable"
+    if manual then addLog("Update check skipped: HTTP unavailable.") end
+    return false
+  end
+
+  state.updateStatus = "Checking GitHub..."
+
+  local response
+  local ok = pcall(function()
+    response = http.get(UPDATE_URL)
+  end)
+
+  if not ok or not response then
+    state.updateStatus = "GitHub unavailable"
+    if manual then addLog("Update check failed: GitHub unavailable.") end
+    return false
+  end
+
+  local source = response.readAll()
+  response.close()
+
+  local remoteVersion = getVersionFromSource(source)
+  if not remoteVersion then
+    state.updateStatus = "Invalid update"
+    if manual then addLog("Update rejected: no valid VERSION found.") end
+    return false
+  end
+
+  state.updateVersion = remoteVersion
+
+  if not isVersionNewer(remoteVersion, VERSION) then
+    state.updateAvailable = false
+    state.updateStatus = "Up to date (" .. VERSION .. ")"
+    if manual then addLog("Update check complete: already up to date.") end
+    return false
+  end
+
+  state.updateAvailable = true
+  state.updateStatus = "Update available: " .. remoteVersion
+  addLog("New GraveSight version found: " .. remoteVersion)
+
+  local temp = fs.open(UPDATE_TEMP, "w")
+  if not temp then
+    state.updateStatus = "Temp file failed"
+    addLog("Update failed: could not create temporary file.")
+    return false
+  end
+  temp.write(source)
+  temp.close()
+
+  local verify = fs.open(UPDATE_TEMP, "r")
+  if not verify then
+    state.updateStatus = "Verification failed"
+    if fs.exists(UPDATE_TEMP) then fs.delete(UPDATE_TEMP) end
+    addLog("Update failed: could not verify download.")
+    return false
+  end
+
+  local verifiedSource = verify.readAll()
+  verify.close()
+
+  if getVersionFromSource(verifiedSource) ~= remoteVersion then
+    fs.delete(UPDATE_TEMP)
+    state.updateStatus = "Verification failed"
+    addLog("Update rejected: downloaded file failed verification.")
+    return false
+  end
+
+  if fs.exists(UPDATE_BACKUP) then fs.delete(UPDATE_BACKUP) end
+
+  if fs.exists(PROGRAM_PATH) then
+    local backupOK = pcall(function()
+      fs.copy(PROGRAM_PATH, UPDATE_BACKUP)
+    end)
+    if not backupOK or not fs.exists(UPDATE_BACKUP) then
+      fs.delete(UPDATE_TEMP)
+      state.updateStatus = "Backup failed"
+      addLog("Update failed: could not create backup.")
+      return false
+    end
+  end
+
+  local installOK = pcall(function()
+    if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
+    fs.move(UPDATE_TEMP, PROGRAM_PATH)
+  end)
+
+  if not installOK or not fs.exists(PROGRAM_PATH) then
+    if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
+    if fs.exists(UPDATE_BACKUP) then
+      pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end)
+    end
+    state.updateStatus = "Install failed"
+    addLog("Update failed: previous version restored.")
+    return false
+  end
+
+  local final = fs.open(PROGRAM_PATH, "r")
+  local finalSource = final and final.readAll() or nil
+  if final then final.close() end
+
+  if not finalSource or getVersionFromSource(finalSource) ~= remoteVersion then
+    if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
+    if fs.exists(UPDATE_BACKUP) then
+      pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end)
+    end
+    state.updateStatus = "Final verification failed"
+    addLog("Update failed: installed file did not verify. Previous version restored.")
+    return false
+  end
+
+  state.updateAvailable = false
+  state.updateStatus = "Updated to " .. remoteVersion
+  state.restartForUpdate = true
+  addLog("Update installed: " .. VERSION .. " -> " .. remoteVersion)
+  return true
+end
+
+
+-- ============================================================
+-- 11. PROGRAM STARTUP
+-- ============================================================
 
 checkForUpdate(false)
 
