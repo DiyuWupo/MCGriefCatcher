@@ -1,35 +1,23 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (ENDER MODEM EDITION)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (ENDER MODEM)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local BASE_ID = 442
 local LOG_FILE = "pocket_alerts.log"
 local running = true
 
--- Disable Ctrl+T termination on the handheld
+-- Disable Ctrl+T termination
 os.pullEvent = os.pullEventRaw
 
--- Find Pocket Ender/Wireless Modem
 local modem = peripheral.find("modem")
 if not modem then
-  error("Error: Ender Modem required on Pocket Computer!")
+  error("Error: Ender/Wireless Modem required on Pocket PC!")
 end
-
 rednet.open(peripheral.getName(modem))
 
 local w, h = term.getSize()
 local lastTimestamp = "N/A"
 local lastAlert = "Waiting for data..."
-
--- Function to play a client-side note block ding using Minecraft commands if you have permission, 
--- or fallback to visual flashing if not.
-local function playAlertSound()
-  -- If you are playing on a server where you can run commands, or if singleplayer:
-  pcall(function()
-    local chat = peripheral.find("chatBox")
-    -- Alternatively, we can rely on standard client feedback or text flashing
-  end)
-end
 
 local function drawUI()
   term.setBackgroundColor(colors.black)
@@ -66,12 +54,17 @@ local function drawUI()
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
   
+  -- EXIT button (columns 1 to 6)
   term.setCursorPos(1, h)
   term.setBackgroundColor(colors.red)
   term.setTextColor(colors.white)
-  print(" EXIT ")
+  term.write(" EXIT ")
   
-  term.setCursorPos(10, h)
+  -- Spacer
+  term.setBackgroundColor(colors.black)
+  term.write("  ")
+  
+  -- SCAN button (columns 9 to 20)
   term.setBackgroundColor(colors.orange)
   term.setTextColor(colors.white)
   term.write(" SCAN ")
@@ -85,11 +78,10 @@ while running do
   if event == "rednet_message" then
     local senderID, payload, protocol = p1, p2, p3
     
-    if (protocol == REDNET_CHANNEL or protocol == tostring(REDNET_CHANNEL)) and type(payload) == "table" and payload.system == "GraveSight" then
+    if (tonumber(protocol) == REDNET_CHANNEL) and type(payload) == "table" and payload.system == "GraveSight" then
       lastTimestamp = payload.timestamp or os.date("%H:%M:%S")
       lastAlert = payload.message or "Unknown alert"
       
-      -- Flash screen color briefly or log
       local f = fs.open(LOG_FILE, "a")
       if f then
         f.writeLine("[" .. lastTimestamp .. "] " .. lastAlert)
@@ -103,18 +95,28 @@ while running do
     local button, x, y = p1, p2, p3
     
     if y == h then
+      -- EXIT button check (covers columns 1 to 6)
       if x >= 1 and x <= 6 then
         running = false
-      elseif x >= 10 and x <= 15 then
-        rednet.send(BASE_ID, {system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
+      -- SCAN button check (covers columns 9 to 20)
+      elseif x >= 9 and x <= 20 then
+        local ok = pcall(function()
+          rednet.send(BASE_ID, {system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
+        end)
+        
         lastTimestamp = os.date("%H:%M:%S")
-        lastAlert = "Scan command sent to #" .. BASE_ID
+        if ok then
+          lastAlert = "Scan command sent to #" .. BASE_ID
+        else
+          lastAlert = "Send failed (Range/ID issue)"
+        end
         drawUI()
       end
     end
   end
 end
 
+-- Clean Exit
 term.setBackgroundColor(colors.black)
 term.clear()
 term.setCursorPos(1,1)
