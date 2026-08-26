@@ -1,5 +1,5 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (ULTRA LIGHT)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (FINAL SAFE)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
@@ -83,7 +83,7 @@ while not targetID do
   term.clear()
   term.setCursorPos(2, 2)
   term.setTextColor(colors.cyan)
-  print("LINKING TO: " + targetOwner + "'s Grid...")
+  print("LINKING TO: " .. targetOwner .. "'s Grid...")
 
   targetID = rednet.lookup("GraveSight", targetOwner .. "'s Network")
   
@@ -114,7 +114,7 @@ end
 local lastTimestamp = "N/A"
 local lastAlert = "Connected to " .. targetOwner .. "'s Network"
 
-local function drawUI()
+local function drawUI(progressPercent)
   term.setBackgroundColor(colors.black)
   term.clear()
   
@@ -142,6 +142,26 @@ local function drawUI()
   term.setCursorPos(1, 6)
   term.setTextColor(colors.white)
   print(lastAlert)
+
+  -- SAFE PROGRESS BAR RENDERER
+  if progressPercent then
+    term.setCursorPos(1, 8)
+    term.setTextColor(colors.cyan)
+    print("SYNCING GRID:")
+    
+    local barWidth = w - 4
+    local filled = math.floor((progressPercent / 100) * barWidth)
+    term.setCursorPos(2, 9)
+    term.setBackgroundColor(colors.gray)
+    term.write(string.rep(" ", barWidth))
+    
+    if filled > 0 then
+      term.setCursorPos(2, 9)
+      term.setBackgroundColor(colors.lime)
+      term.write(string.rep(" ", filled))
+    end
+    term.setBackgroundColor(colors.black)
+  end
 
   term.setCursorPos(1, h - 1)
   term.setTextColor(colors.gray)
@@ -178,15 +198,20 @@ while running do
     end
     
   elseif event == "mouse_click" then
-    -- Correct mouse mapping: p1 = button, p2 = x, p3 = y
     local btn, x, y = p1, p2, p3
     
     if y == h then
-      -- EXIT button spans from x=1 to x=6 (" EXIT ")
+      -- EXIT button (x: 1 to 6)
       if x >= 1 and x <= 6 then
         running = false
-      -- SCAN button spans from x=10 to x=15 (" SCAN ")
+      -- SCAN button (x: 10 to 16)
       elseif x >= 10 and x <= 16 then
+        lastTimestamp = os.date("%H:%M:%S")
+        lastAlert = "Transmitting scan packet..."
+        
+        -- Instant step rendering to keep game fully responsive
+        drawUI(50)
+        
         pcall(function()
           rednet.send(targetID, {
             system = "GraveSightCmd",
@@ -194,7 +219,12 @@ while running do
           }, REDNET_CHANNEL)
         end)
         
-        lastTimestamp = os.date("%H:%M:%S")
+        drawUI(100)
+        
+        -- Safe non-blocking yield step
+        os.queueEvent("dummy_yield")
+        os.pullEvent("dummy_yield")
+        
         lastAlert = "Scan requested from base..."
         drawUI()
       end
