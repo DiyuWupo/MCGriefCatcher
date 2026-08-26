@@ -16,7 +16,7 @@ local DISCORD_WEBHOOK = ""
 local DISCORD_ENABLED = false        
 local MODEM_ENABLED_PREF = true      
 
-local VERSION = "1.2.5"
+local VERSION = "1.2.6"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 local setup = {
@@ -274,6 +274,15 @@ local function findPeripheral(possibleNames)
       if ptype == candidate then return peripheral.wrap(name) end
     end
   end
+  local sides = {"top", "bottom", "left", "right", "front", "back"}
+  for _, side in ipairs(sides) do
+    if peripheral.isPresent(side) then
+      local ptype = peripheral.getType(side)
+      for _, candidate in ipairs(possibleNames) do
+        if ptype == candidate then return peripheral.wrap(side) end
+      end
+    end
+  end
   return nil
 end
 
@@ -311,9 +320,15 @@ local function ensureHardwareAttached()
     missing = scanHardware()
   end
 
-  if modem and MODEM_ENABLED_PREF then
+  if MODEM_ENABLED_PREF then
     for _, name in ipairs(peripheral.getNames()) do
       if peripheral.getType(name) == "modem" then pcall(function() rednet.open(name) end) end
+    end
+    local sides = {"top", "bottom", "left", "right", "front", "back"}
+    for _, side in ipairs(sides) do
+      if peripheral.isPresent(side) and peripheral.getType(side) == "modem" then
+        pcall(function() rednet.open(side) end)
+      end
     end
   end
 end
@@ -556,6 +571,12 @@ local function draw()
       for _, name in ipairs(peripheral.getNames()) do
         if peripheral.getType(name) == "modem" then
           if rednet.isOpen() then rednet.close(name) else rednet.open(name) end
+        end
+      end
+      local sides = {"top", "bottom", "left", "right", "front", "back"}
+      for _, side in ipairs(sides) do
+        if peripheral.isPresent(side) and peripheral.getType(side) == "modem" then
+          if rednet.isOpen() then rednet.close(side) else rednet.open(side) end
         end
       end
     end, rednet.isOpen() and colors.green or colors.red, colors.white)
