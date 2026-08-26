@@ -387,7 +387,7 @@ if not term.isColor() then
 end
 
 -- ============================================================
--- 2. PERIPHERAL SETUP & HARDWARE CHECK
+-- 2. PERIPHERAL SETUP & HARDWARE CHECK (WITH MODEM MANDATE)
 -- ------------------------------------------------------------
 local playerDet, envDet, geoScanner, chatBox, modem
 
@@ -412,6 +412,7 @@ local function scanHardware()
   if not playerDet then table.insert(missing, "Player Detector") end
   if not envDet then table.insert(missing, "Environment Detector") end
   if not geoScanner then table.insert(missing, "Geo Scanner") end
+  if not modem then table.insert(missing, "Wireless/Ender Modem") end
   return missing
 end
 
@@ -743,13 +744,12 @@ local function backgroundLoop()
   local lastUpdateCheck = os.clock()
 
   while state.running do
-    -- Robust check for incoming private or fallback broadcast commands from Pocket Remote
     if modem and rednet.isOpen() then
       local ok, senderID, msg, protocol = pcall(function()
         return rednet.receive(REDNET_CHANNEL, 0)
       end)
       if ok and senderID and type(msg) == "table" then
-        if msg.system == "GraveSightCmd" and (not msg.target or msg.target == 442) and msg.command == "scan" then
+        if msg.system == "GraveSightCmd" and (not msg.target or msg.target == os.getComputerID()) and msg.command == "scan" then
           state.forceUpdate = true
           addLog("REMOTE: Manual scan requested by ID " .. tostring(senderID))
         end
@@ -826,48 +826,6 @@ local function backgroundLoop()
   end
 end
 
-
--- ============================================================
--- SCULK SUSPICION ANALYSIS
--- ============================================================
--- Cautious mode intentionally starts low and only escalates when
--- multiple pieces of evidence appear. A score is an estimate,
--- not proof that a player caused an event.
--- ============================================================
-
-local function suspicionLevel(score)
-  if score >= 70 then
-    return "HIGH"
-  elseif score >= 30 then
-    return "MEDIUM"
-  end
-  return "LOW"
-end
-
-local function calculateSculkSuspicion(evidence)
-  local score = 10 -- isolated event starts as low suspicion
-
-  if evidence.playerNearby then score = score + 15 end
-  if (evidence.nearbyEvents or 0) >= 3 then score = score + 15 end
-  if (evidence.nearbyEvents or 0) >= 6 then score = score + 10 end
-  if evidence.largeArea then score = score + 20 end
-  if evidence.repeatedPlayer then score = score + 25 end
-
-  -- A likely accidental/weapon interaction lowers suspicion.
-  if evidence.possibleWeapon then score = score - 25 end
-
-  -- Trusted players should strongly reduce suspicion.
-  if evidence.whitelisted then score = score - 50 end
-
-  score = math.max(0, math.min(100, score))
-  return score, suspicionLevel(score)
-end
-
-local function formatSculkSuspicion(evidence)
-  local score, level = calculateSculkSuspicion(evidence or {})
-  return string.format("SUSPICION: %d%% — %s", score, level), score, level
-end
-
 -- ============================================================
 -- 9. USER INTERFACE
 -- ------------------------------------------------------------
@@ -921,7 +879,7 @@ local function draw()
 
     term.setCursorPos(2, contentTop + 2)
     term.setTextColor(colors.lightBlue)
-    term.write("Code: v" .. VERSION .. " | " .. (state.updateStatus or "Not checked"))
+    term.write("Code: v" .. VERSION + " ID: " .. os.getComputerID() .. " | " .. (state.updateStatus or "Not checked"))
 
     addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
 
@@ -1260,7 +1218,7 @@ checkForUpdate = function(manual)
 
   if not finalSource or getVersionFromSource(finalSource) ~= remoteVersion then
     if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
-    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end) end
+    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(PROGRAM_PATH, UPDATE_BACKUP) end) end
     state.updateStatus = "Final verification failed"
     addLog("Update failed: installed file did not verify. Previous version restored.")
     return false
