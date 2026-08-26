@@ -29,7 +29,7 @@ local DISCORD_WEBHOOK = ""           -- Discord Webhook URL for remote alerts
 local DISCORD_ENABLED = false        -- Toggle Discord notifications (true/false)
 local MODEM_ENABLED_PREF = true      -- Default wireless modem state
 
-local VERSION = "1.1.4"
+local VERSION = "1.2.0"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 -- Internal State Variables
@@ -44,7 +44,6 @@ local failedAttempts = 0
 
 -- ============================================================
 -- SECTION 2: SECURITY & PASSWORD HASHING
--- Handles secure password encryption for admin access.
 -- ============================================================
 local function hashPassword(password)
   local salt = "GraveSight_Salt_2026_Secure"
@@ -103,7 +102,6 @@ end
 
 -- ============================================================
 -- SECTION 3: 30-SECOND EPIC WARDEN BOOT ANIMATION
--- Cinematic startup: Wizard Arcane Purple -> Sculk Cyan Takeover
 -- ============================================================
 local function runDramaticWardenBoot()
   term.setBackgroundColor(colors.black)
@@ -147,7 +145,6 @@ local function runDramaticWardenBoot()
     center(boxTop + 4, "ARCANE OBSERVATION ENGINE", colors.lightGray)
   end
 
-  -- Phase 1: Majestic Wizard Purple Initialization (0 - 12s)
   drawBox(colors.purple)
   sleep(2.0)
   center(boxTop + 6, " MEMORY .......... ALLOCATED ", colors.lightGray)
@@ -159,7 +156,6 @@ local function runDramaticWardenBoot()
   center(boxTop + 10, " ARCANE LINK ESTABLISHED ", colors.magenta)
   sleep(2.5)
 
-  -- Phase 2: First Contact & Anomaly (12 - 20s)
   term.clear()
   drawBox(colors.blue)
   center(boxTop + 6, " INCOMING SUB-TERRANEAN FREQUENCY ", colors.white)
@@ -169,7 +165,6 @@ local function runDramaticWardenBoot()
   center(boxTop + 9, " PATTERN ......... UNKNOWN ENTITY ", colors.orange)
   sleep(3.0)
 
-  -- Phase 3: Sculk Takeover Rhythm (20 - 28s)
   center(boxTop + 10, " DEEP DARK TRANSLATION ... FAILED ", colors.red)
   sleep(2.0)
 
@@ -199,7 +194,6 @@ local function runDramaticWardenBoot()
     sleep(0.06)
   end
 
-  -- Phase 4: Final Sculk Flash & Silence (28 - 30s)
   term.setBackgroundColor(colors.cyan)
   for i = 1, h do
     term.setCursorPos(1, i)
@@ -213,7 +207,6 @@ local function runDramaticWardenBoot()
   sleep(1.5)
 end
 
--- First-run setup wizard
 local function runFirstSetup()
   runDramaticWardenBoot()
   term.setBackgroundColor(colors.black)
@@ -277,7 +270,6 @@ YOUR_NAME = setup.owner
 
 -- ============================================================
 -- SECTION 4: UI THEMES & PALETTES
--- Customizable color schemes (Sculk, Deep, Ancient, Warden)
 -- ============================================================
 local UI_THEMES = {
   ["Sculk"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.cyan, selected = colors.blue, warning = colors.orange, danger = colors.red },
@@ -288,8 +280,7 @@ local UI_THEMES = {
 local UI_THEME = "Sculk"
 
 -- ============================================================
--- SECTION 5: PERIPHERAL & HARDWARE SCANNING
--- Automatically detects required blocks (Player Detector, etc.)
+-- SECTION 5: HARDWARE SCANNING
 -- ============================================================
 local playerDet, envDet, geoScanner, chatBox, modem
 
@@ -345,7 +336,6 @@ end
 
 ensureHardwareAttached()
 
--- Whitelist and detection tracking lists
 local WHITELIST_FILE = "gravesight_whitelist.cfg"
 local whitelist = {}
 local SCULK_NAMES = { ["minecraft:sculk"] = true, ["minecraft:sculk_catalyst"] = true, ["minecraft:sculk_sensor"] = true, ["minecraft:sculk_shrieker"] = true, ["minecraft:sculk_vein"] = true }
@@ -389,7 +379,6 @@ local function setTheme(name)
   if UI_THEMES[name] then UI_THEME = name; state.themeName = name; setThemeColors() end
 end
 
--- Load settings, whitelist, etc.
 local function loadSettings()
   if not fs.exists(SETTINGS_FILE) then return end
   local file = fs.open(SETTINGS_FILE, "r")
@@ -406,27 +395,8 @@ local function loadSettings()
 end
 loadSettings()
 
-local function loadWhitelist()
-  whitelist = {}
-  if not fs.exists(WHITELIST_FILE) then return end
-  local file = fs.open(WHITELIST_FILE, "r")
-  if not file then return end
-  while true do
-    local name = file.readLine()
-    if not name then break end
-    name = name:gsub("^%s+", ""):gsub("%s+$", "")
-    if name ~= "" then whitelist[name:lower()] = name end
-  end
-  file.close()
-end
-loadWhitelist()
-
-local function isWhitelisted(name) return whitelist[name:lower()] ~= nil end
-local function addToWhitelist(name) whitelist[name:lower()] = name; local f = fs.open(WHITELIST_FILE, "w"); for _, n in pairs(whitelist) do f.writeLine(n) end; f.close(); return true end
-
 -- ============================================================
--- SECTION 7: BACKGROUND MONITORING LOOP
--- Scans for players, animals, sculk, and handles pocket remotes
+-- SECTION 7: BACKGROUND MONITORING & FLUX NETWORK LISTENER
 -- ============================================================
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
@@ -460,20 +430,25 @@ local function backgroundLoop()
   local lastScanTime = os.clock()
 
   while state.running do
-    -- Listen for pocket remote discovery pings and scan commands
+    -- Listen for Flux Network discovery queries & network-wide commands
     if rednet.isOpen() then
       local ok, senderID, msg = pcall(function() return rednet.receive(REDNET_CHANNEL, 0) end)
       if ok and senderID and type(msg) == "table" then
         if msg.system == "GraveSightQuery" and msg.command == "discover" then
-          pcall(function() rednet.send(senderID, { system = "GraveSightAnnounce", stationName = setup.stationName, computerID = os.getComputerID(), owner = setup.owner }, REDNET_CHANNEL) end)
-        elseif msg.system == "GraveSightCmd" and (not msg.target or msg.target == os.getComputerID()) and msg.command == "scan" then
+          pcall(function()
+            rednet.send(senderID, {
+              system = "GraveSightAnnounce",
+              stationName = setup.stationName,
+              owner = setup.owner
+            }, REDNET_CHANNEL)
+          end)
+        elseif msg.system == "GraveSightCmd" and (not msg.targetNetwork or msg.targetNetwork == setup.stationName) and msg.command == "scan" then
           state.forceUpdate = true
-          addLog("REMOTE: Manual scan requested by #" .. tostring(senderID))
+          addLog("REMOTE: Manual scan requested via network grid.")
         end
       end
     end
 
-    -- Check player presence
     local players = playerDet.getPlayersInRange(RADIUS)
     local nowPresent = {}
     for _, name in ipairs(players) do
@@ -484,12 +459,11 @@ local function backgroundLoop()
     end
     for name, enterTime in pairs(state.present) do
       if not nowPresent[name] then
-        if not isWhitelisted(name) then addLog("EXIT:  " .. name) end
+        addLog("EXIT:  " .. name)
         state.present[name] = nil
       end
     end
 
-    -- Monitor animal counts & sculk growth
     if os.clock() - lastScanTime >= SCAN_INTERVAL or state.forceUpdate then
       lastScanTime = os.clock()
       local newSculk, newCat = countSculk()
@@ -506,7 +480,7 @@ local function backgroundLoop()
 end
 
 -- ============================================================
--- SECTION 8: USER INTERFACE (UI) & DISPLAY DRAWING
+-- SECTION 8: USER INTERFACE (UI)
 -- ============================================================
 local w, h = term.getSize()
 local buttons = {}
@@ -530,13 +504,11 @@ local function draw()
   term.setBackgroundColor(theme().background)
   term.clear()
 
-  -- Top Header
   clearLine(1, theme().accent)
   term.setCursorPos(2, 1)
   term.setTextColor(theme().text)
   term.write("Diyu's GraveSight v" .. VERSION)
 
-  -- Navigation Tabs
   clearLine(2)
   addButton(2, 2, " Status ", function() state.activeTab = "status"; state.settingsMessage = "" end, state.activeTab == "status" and theme().accent or theme().panel, state.activeTab == "status" and theme().background or theme().text)
   addButton(11, 2, " Log ", function() state.activeTab = "log"; state.settingsMessage = "" end, state.activeTab == "log" and theme().accent or theme().panel, state.activeTab == "log" and theme().background or theme().text)
@@ -553,7 +525,7 @@ local function draw()
     term.write("Animals: " .. state.animals .. " | Sculk: " .. state.sculk .. (state.hasCatalyst and " (CATALYST!)" or ""))
     term.setCursorPos(2, contentTop + 2)
     term.setTextColor(colors.lightBlue)
-    term.write("ID: " .. os.getComputerID() .. " | Net: " .. (rednet.isOpen() and "ONLINE" or "OFFLINE"))
+    term.write("Net: " .. (rednet.isOpen() and "ONLINE" or "OFFLINE"))
 
     addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
 
@@ -565,7 +537,7 @@ local function draw()
     for name, since in pairs(state.present) do
       if row <= contentBottom then
         term.setCursorPos(4, row)
-        term.write(name .. " (since " .. since .. ")" .. (isWhitelisted(name) and " [WHITELISTED]" or ""))
+        term.write(name .. " (since " .. since .. ")")
         row = row + 1; any = true
       end
     end
@@ -590,7 +562,6 @@ local function draw()
     term.setBackgroundColor(theme().background)
     term.setTextColor(theme().text)
 
-    -- Network Name Settings
     term.setCursorPos(2, contentTop)
     setAccent(); term.write("NET NAME: "); setMuted(); term.write(setup.stationName:sub(1, 10) .. " ")
     addButton(21, contentTop, " RENAME ", function()
@@ -599,31 +570,27 @@ local function draw()
       if newName and newName ~= "" then setup.stationName = newName; state.settingsMessage = "Renamed!" end
     end)
 
-    -- Theme Buttons (Sculk, Deep, Ancient/Purple, Warden)
     term.setCursorPos(30, contentTop); setAccent(); term.write("THEME:")
     addButton(37, contentTop, " S ", function() setTheme("Sculk") end, UI_THEME == "Sculk" and theme().accent or theme().panel)
     addButton(41, contentTop, " D ", function() setTheme("Deep") end, UI_THEME == "Deep" and theme().accent or theme().panel)
     addButton(45, contentTop, " A ", function() setTheme("Ancient") end, UI_THEME == "Ancient" and theme().accent or theme().panel)
     addButton(49, contentTop, " W ", function() setTheme("Warden") end, UI_THEME == "Warden" and theme().accent or theme().panel)
 
-    -- Live Modem Toggle
     term.setCursorPos(2, contentTop + 2); setAccent(); term.write("MODEM: "); setMuted(); term.write(rednet.isOpen() and "ONLINE  " or "OFFLINE ")
     addButton(18, contentTop + 2, rednet.isOpen() and " DISABLE " or " ENABLE  ", function()
       for _, name in ipairs(peripheral.getNames()) do
         if peripheral.getType(name) == "modem" then
-          if rednet.isOpen() then rednet.close(name); MODEM_ENABLED_PREF = false else rednet.open(name); MODEM_ENABLED_PREF = true end
+          if rednet.isOpen() then rednet.close(name) else rednet.open(name) end
         end
       end
     end, rednet.isOpen() and colors.green or colors.red, colors.white)
 
-    -- Radii Controls
     term.setCursorPos(2, contentTop + 6); term.setTextColor(theme().text)
     term.write("Player Radius: " .. string.format("%-3d", RADIUS))
     addButton(21, contentTop + 6, " - ", function() RADIUS = math.max(4, RADIUS - 2) end)
     addButton(25, contentTop + 6, " + ", function() RADIUS = math.min(128, RADIUS + 2) end)
   end
 
-  -- Bottom Exit Button
   clearLine(h - 1, theme().panel)
   clearLine(h)
   addButton(2, h, " Exit to Shell ", function() state.running = false end, colors.red, colors.white)
@@ -645,7 +612,7 @@ local function uiLoop()
 end
 
 -- ============================================================
--- SECTION 9: PROGRAM EXECUTION
+-- SECTION 9: EXECUTION
 -- ============================================================
 setThemeColors()
 os.pullEvent = os.pullEventRaw
