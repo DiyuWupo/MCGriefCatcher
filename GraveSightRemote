@@ -1,5 +1,5 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (CONFIGURABLE)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (FIXED)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
@@ -85,11 +85,9 @@ while not targetID do
   term.setTextColor(colors.cyan)
   print("LINKING TO: " .. targetOwner .. "'s Grid...")
 
-  -- Lookup host matching the base owner's network name
   targetID = rednet.lookup("GraveSight", targetOwner .. "'s Network")
   
   if not targetID then
-    -- Fallback lookup check by protocol alone if exact name lookup misses
     local servers = {rednet.lookup("GraveSight")}
     if #servers > 0 then
       targetID = servers[1]
@@ -163,9 +161,10 @@ end
 drawUI()
 
 while running do
-  local event, senderID, payload, protocol = os.pullEventRaw()
+  local event, p1, p2, p3 = os.pullEventRaw()
   
   if event == "rednet_message" then
+    local senderID, payload, protocol = p1, p2, p3
     if type(payload) == "table" and payload.system == "GraveSight" then
       lastTimestamp = payload.timestamp or os.date("%H:%M:%S")
       lastAlert = payload.message or "Unknown alert"
@@ -176,7 +175,7 @@ while running do
     end
     
   elseif event == "mouse_click" then
-    local button, x, y = senderID, payload, protocol
+    local button, x, y = p1, p2, p3
     if y == h then
       if x >= 1 and x <= 6 then
         running = false
