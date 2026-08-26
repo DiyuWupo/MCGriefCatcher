@@ -1,3 +1,4 @@
+-- DEFAULT: CAUTIOUS Sculk Suspicion Analysis
 -- ============================================================
 --          DIYU'S GRAVESIGHT // PLAYER QUICK GUIDE
 -- ============================================================
@@ -23,6 +24,7 @@
 -- ------------------------------------------------------------
 -- [ SAFE TO EDIT ] Change default starting values here if desired.
 -- You can also tweak these live in game via the Settings tab.
+-- The owner is finalized during first-run setup and protected by the admin password.
 -- ============================================================
 local YOUR_NAME = "DiyuWupo"         -- Your Minecraft username
 local RADIUS = 50                    -- Player/entity monitoring radius (blocks)
@@ -47,6 +49,16 @@ local PROGRAM_PATH = shell.getRunningProgram()
 
 local CONFIG_FILE = "gravesight_config.cfg"
 local DEFAULT_OWNER = YOUR_NAME
+
+-- Sculk Suspicion Analysis defaults to CAUTIOUS.
+-- This favors avoiding false accusations over aggressive alerts.
+local SCULK_SUSPICION_MODE = "Cautious"
+local SUSPICION_THRESHOLDS = {
+  LOW = 29,
+  MEDIUM = 69,
+  HIGH = 100
+}
+
 local setup = {
   configured = false,
   owner = DEFAULT_OWNER,
@@ -273,8 +285,6 @@ end
 loadSetup()
 if not setup.configured then
   runFirstSetup()
-else
-  runDramaticWardenBoot()
 end
 
 YOUR_NAME = setup.owner
@@ -464,6 +474,7 @@ local function setTheme(name)
     UI_THEME = name
     state.themeName = name
     setThemeColors()
+    if saveSettings then saveSettings() end
   end
 end
 
@@ -474,7 +485,7 @@ local function saveSettings()
   local data = {
     radius = RADIUS, scanRadius = SCAN_RADIUS, checkInterval = CHECK_INTERVAL,
     scanInterval = SCAN_INTERVAL, updateInterval = UPDATE_INTERVAL,
-    chatAlerts = chatBox ~= nil and true or false, animals = {}, sculk = {},
+    theme = UI_THEME, chatAlerts = chatBox ~= nil and true or false, animals = {}, sculk = {},
     discordWebhook = DISCORD_WEBHOOK, discordEnabled = DISCORD_ENABLED
   }
   for name, enabled in pairs(ANIMAL_TYPES) do data.animals[name] = enabled end
@@ -499,6 +510,7 @@ local function loadSettings()
   if type(data.checkInterval) == "number" then CHECK_INTERVAL = math.max(1, math.min(30, data.checkInterval)) end
   if type(data.scanInterval) == "number" then SCAN_INTERVAL = math.max(2, math.min(60, data.scanInterval)) end
   if type(data.updateInterval) == "number" then UPDATE_INTERVAL = math.max(60, math.min(31536000, data.updateInterval)) end
+  if type(data.theme) == "string" and UI_THEMES[data.theme] then UI_THEME = data.theme end
 
   if type(data.discordWebhook) == "string" then DISCORD_WEBHOOK = data.discordWebhook end
   if type(data.discordEnabled) == "boolean" then DISCORD_ENABLED = data.discordEnabled end
@@ -586,7 +598,7 @@ local function changeOwnerProtected()
     term.setCursorPos(2, 11)
     term.setTextColor(theme().danger)
     term.write("ACCESS DENIED - RATE LIMITED")
-    sleep(math.pow(2, failedAttempts))
+    sleep(math.min(8, math.pow(2, failedAttempts)))
     return
   end
 
@@ -680,7 +692,11 @@ local function backgroundLoop()
     end
     for name, enterTime in pairs(state.present) do
       if not nowPresent[name] then
-        addLog("EXIT:  " .. name .. " (since " .. enterTime .. ")")
+        if isWhitelisted(name) then
+          addLog("INFO: Whitelisted player left: " .. name .. " (since " .. enterTime .. ")")
+        else
+          addLog("EXIT:  " .. name .. " (since " .. enterTime .. ")")
+        end
         state.present[name] = nil
       end
     end
@@ -689,8 +705,10 @@ local function backgroundLoop()
     if currentAnimals and currentAnimals < state.animals then
       local drop = state.animals - currentAnimals
       local suspects = {}
-      for name, _ in pairs(state.present) do table.insert(suspects, name) end
-      local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby"
+      for name, _ in pairs(state.present) do
+        if not isWhitelisted(name) then table.insert(suspects, name) end
+      end
+      local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no untrusted player nearby"
       addLog("ALERT: Lost " .. drop .. " animal(s). Nearby: " .. suspectStr)
       if chatBox then chatBox.sendMessage("Lost " .. drop .. " animal(s)! Nearby: " .. suspectStr, "GRAVESIGHT", "&4") end
     end
@@ -703,8 +721,10 @@ local function backgroundLoop()
         if newSculk > state.sculk then
           local grew = newSculk - state.sculk
           local suspects = {}
-          for name, _ in pairs(state.present) do table.insert(suspects, name) end
-          local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no player nearby (likely catalyst spread)"
+          for name, _ in pairs(state.present) do
+            if not isWhitelisted(name) then table.insert(suspects, name) end
+          end
+          local suspectStr = (#suspects > 0) and table.concat(suspects, ", ") or "no untrusted player nearby (likely catalyst spread)"
           addLog("SCULK BLOOM: +" .. grew .. ". Nearby: " .. suspectStr)
           if chatBox then chatBox.sendMessage("Sculk bloom +" .. grew .. "! Nearby: " .. suspectStr, "Sculk Alert", "&5") end
         end
@@ -727,6 +747,48 @@ local function backgroundLoop()
     os.queueEvent("gravesight_redraw")
     sleep(CHECK_INTERVAL)
   end
+end
+
+
+-- ============================================================
+-- SCULK SUSPICION ANALYSIS
+-- ============================================================
+-- Cautious mode intentionally starts low and only escalates when
+-- multiple pieces of evidence appear. A score is an estimate,
+-- not proof that a player caused an event.
+-- ============================================================
+
+local function suspicionLevel(score)
+  if score >= 70 then
+    return "HIGH"
+  elseif score >= 30 then
+    return "MEDIUM"
+  end
+  return "LOW"
+end
+
+local function calculateSculkSuspicion(evidence)
+  local score = 10 -- isolated event starts as low suspicion
+
+  if evidence.playerNearby then score = score + 15 end
+  if (evidence.nearbyEvents or 0) >= 3 then score = score + 15 end
+  if (evidence.nearbyEvents or 0) >= 6 then score = score + 10 end
+  if evidence.largeArea then score = score + 20 end
+  if evidence.repeatedPlayer then score = score + 25 end
+
+  -- A likely accidental/weapon interaction lowers suspicion.
+  if evidence.possibleWeapon then score = score - 25 end
+
+  -- Trusted players should strongly reduce suspicion.
+  if evidence.whitelisted then score = score - 50 end
+
+  score = math.max(0, math.min(100, score))
+  return score, suspicionLevel(score)
+end
+
+local function formatSculkSuspicion(evidence)
+  local score, level = calculateSculkSuspicion(evidence or {})
+  return string.format("SUSPICION: %d%% — %s", score, level), score, level
 end
 
 -- ============================================================
@@ -754,21 +816,21 @@ local function draw()
   term.setBackgroundColor(theme().background)
   term.clear()
 
-  clearLine(1, colors.blue)
+  clearLine(1, theme().accent)
   term.setCursorPos(2, 1)
   term.setTextColor(theme().text)
   term.write("Diyu's GraveSight v" .. VERSION)
 
   clearLine(2)
-  addButton(2, 2, " Status ", function() state.activeTab = "status" end,
+  addButton(2, 2, " Status ", function() state.activeTab = "status"; state.settingsMessage = "" end,
     state.activeTab == "status" and theme().accent or theme().panel,
-    state.activeTab == "status" and colors.black or colors.white)
-  addButton(11, 2, " Log ", function() state.activeTab = "log" end,
+    state.activeTab == "status" and theme().background or theme().text)
+  addButton(11, 2, " Log ", function() state.activeTab = "log"; state.settingsMessage = "" end,
     state.activeTab == "log" and theme().accent or theme().panel,
-    state.activeTab == "log" and colors.black or colors.white)
+    state.activeTab == "log" and theme().background or theme().text)
   addButton(18, 2, " Settings ", function() state.activeTab = "settings" end,
     state.activeTab == "settings" and theme().accent or theme().panel,
-    state.activeTab == "settings" and colors.black or colors.white)
+    state.activeTab == "settings" and theme().background or theme().text)
 
   local contentTop, contentBottom = 4, h - 2
 
@@ -787,9 +849,11 @@ local function draw()
     addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
 
     addButton(w - 12, 2, " Update ", function()
-      checkForUpdate(true)
-      os.queueEvent("gravesight_redraw")
-    end, state.updateAvailable and colors.orange or theme().panel)
+      if not state.restartForUpdate then
+        checkForUpdate(true)
+        os.queueEvent("gravesight_redraw")
+      end
+    end, state.updateAvailable and theme().warning or theme().panel)
 
     term.setCursorPos(2, contentTop + 3)
     term.write("Players nearby:")
@@ -881,7 +945,7 @@ local function draw()
     term.write("WHITELIST: ")
     addButton(14, contentTop + 6, " + ADD ", function()
       term.setCursorPos(23, contentTop + 6)
-      term.setTextColor(colors.yellow)
+      term.setTextColor(theme().accent)
       term.write("Type Name: ")
       term.setTextColor(theme().text)
       local name = read()
@@ -910,7 +974,7 @@ local function draw()
     addButton(32, contentTop + 8, " SET URL ", function()
       term.setCursorPos(2, contentBottom)
       term.clearLine()
-      term.setTextColor(colors.yellow)
+      term.setTextColor(theme().accent)
       term.write("URL: ")
       term.setTextColor(theme().text)
       local url = read()
@@ -956,7 +1020,7 @@ local function draw()
       term.setCursorPos(2, 8)
       term.setTextColor(theme().danger)
       term.write("ACCESS DENIED - RATE LIMITED")
-      sleep(math.pow(2, failedAttempts))
+      sleep(math.min(8, math.pow(2, failedAttempts)))
     end
   end, colors.red, colors.white)
 end
@@ -1040,7 +1104,7 @@ checkForUpdate = function(manual)
   response.close()
 
   local remoteVersion = getVersionFromSource(source)
-  if not remoteVersion then
+  if not remoteVersion or not source:find("GRAVESIGHT", 1, true) or not source:find("local function", 1, true) then
     state.updateStatus = "Invalid update"
     if manual then addLog("Update rejected: no valid VERSION found.") end
     return false
