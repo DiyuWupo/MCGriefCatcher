@@ -1,26 +1,22 @@
 -- ============================================================
 -- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL
 -- ============================================================
--- Automatically scans nearby airwaves for your GraveSight network,
--- connects securely, and provides remote status updates and scan triggers.
+-- Automatically scans airwaves for your GraveSight network name,
+-- connects securely, and triggers network-wide scans.
 -- ============================================================
 
-local REDNET_CHANNEL = 999           -- Wireless broadcast channel
-local LOG_FILE = "pocket_alerts.log" -- Local log file for received alerts
+local REDNET_CHANNEL = 999
+local LOG_FILE = "pocket_alerts.log"
 local running = true
 
--- Disable raw Ctrl+T interruption for secure immersion
 os.pullEvent = os.pullEventRaw
 
--- ============================================================
--- SECTION 1: HARDWARE CHECK & MODEM SETUP
--- ============================================================
+-- Hardware Check
 local modem = peripheral.find("modem")
 if not modem then
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.red)
   term.clear()
-  term.setCursorPos(1, 1)
   print("CRITICAL ERROR: Wireless/Ender Modem required!")
   while true do os.pullEvent("modem") end
 end
@@ -32,8 +28,7 @@ end
 local w, h = term.getSize()
 
 -- ============================================================
--- SECTION 2: FLUX-STYLE NETWORK DISCOVERY
--- Sniffs the airwaves for online GraveSight networks
+-- FLUX NETWORK DISCOVERY
 -- ============================================================
 local function discoverNetworks()
   term.setBackgroundColor(colors.black)
@@ -41,9 +36,6 @@ local function discoverNetworks()
   term.setCursorPos(2, 2)
   term.setTextColor(colors.cyan)
   print("SCANNING FOR GRAVESIGHT GRIDS...")
-  term.setCursorPos(2, 4)
-  term.setTextColor(colors.gray)
-  print("Broadcasting on channel " .. REDNET_CHANNEL .. "...")
 
   pcall(function()
     rednet.broadcast({ system = "GraveSightQuery", command = "discover" }, REDNET_CHANNEL)
@@ -58,11 +50,10 @@ local function discoverNetworks()
       local senderID, payload, protocol = p1, p2, p3
       if tonumber(protocol) == REDNET_CHANNEL and type(payload) == "table" and payload.system == "GraveSightAnnounce" then
         local exists = false
-        for _, s in ipairs(stations) do if s.id == payload.computerID then exists = true end end
+        for _, s in ipairs(stations) do if s.name == payload.stationName then exists = true end end
         if not exists then
           table.insert(stations, {
-            id = payload.computerID,
-            name = payload.stationName or (payload.owner .. "'s Network"),
+            name = payload.stationName,
             owner = payload.owner
           })
         end
@@ -77,7 +68,6 @@ end
 
 local selectedStation = nil
 
--- Loop until a network is selected
 while not selectedStation do
   local found = discoverNetworks()
   
@@ -89,8 +79,8 @@ while not selectedStation do
     print("NO GRAVESIGHT GRIDS FOUND.")
     term.setCursorPos(2, 4)
     term.setTextColor(colors.white)
-    print("Ensure base computer is online,")
-    print("powered, and has a modem active.")
+    print("Ensure base computer is online")
+    print("and has modem active.")
     term.setCursorPos(2, h)
     term.setTextColor(colors.yellow)
     print("Press ANY KEY to rescan...")
@@ -102,7 +92,7 @@ while not selectedStation do
     term.clear()
     term.setCursorPos(2, 2)
     term.setTextColor(colors.cyan)
-    print("SELECT GRAVESIGHT NETWORK:")
+    print("SELECT NETWORK:")
     
     for i, st in ipairs(found) do
       term.setCursorPos(2, 4 + i)
@@ -118,24 +108,19 @@ while not selectedStation do
   end
 end
 
-local BASE_ID = selectedStation.id
 local stationName = selectedStation.name
 local lastTimestamp = "N/A"
 local lastAlert = "Connected to " .. stationName
 
--- ============================================================
--- SECTION 3: POCKET USER INTERFACE
--- ============================================================
 local function drawUI()
   term.setBackgroundColor(colors.black)
   term.clear()
   
-  -- Header showing your base's custom network name
   term.setCursorPos(1, 1)
   term.setBackgroundColor(colors.blue)
   term.setTextColor(colors.white)
   local title = " " .. stationName .. " "
-  if #title > w then title = " GRAVESIGHT " end
+  if #title > w then title = " REMOTE " end
   local pad = string.rep(" ", math.floor((w - #title)/2))
   term.write(pad .. title .. string.rep(" ", math.ceil((w - #title)/2)))
   
@@ -144,7 +129,6 @@ local function drawUI()
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
 
-  -- Live Status Display
   term.setCursorPos(1, 4)
   term.setTextColor(colors.cyan)
   print("TIME: " .. lastTimestamp)
@@ -157,7 +141,6 @@ local function drawUI()
   term.setTextColor(colors.white)
   print(lastAlert)
 
-  -- Touch Buttons Footer
   term.setCursorPos(1, h - 1)
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
@@ -175,9 +158,6 @@ end
 
 drawUI()
 
--- ============================================================
--- SECTION 4: MAIN POCKET EVENT LOOP
--- ============================================================
 while running do
   local event, p1, p2, p3 = os.pullEventRaw()
   
@@ -196,18 +176,25 @@ while running do
     local button, x, y = p1, p2, p3
     if y == h then
       if x >= 1 and x <= 6 then
-        running = false -- Exit cleanly
+        running = false
       elseif x >= 10 and x <= 16 then
-        pcall(function() rednet.send(BASE_ID, { system = "GraveSightCmd", command = "scan" }, REDNET_CHANNEL) end)
+        -- Broadcasts command targeted specifically to this Flux network name
+        pcall(function()
+          rednet.broadcast({
+            system = "GraveSightCmd",
+            targetNetwork = stationName,
+            command = "scan"
+          }, REDNET_CHANNEL)
+        end)
+        
         lastTimestamp = os.date("%H:%M:%S")
-        lastAlert = "Scan requested from base..."
+        lastAlert = "Scan requested for " .. stationName
         drawUI()
       end
     end
   end
 end
 
--- Clean Exit
 term.setBackgroundColor(colors.black)
 term.setTextColor(colors.white)
 term.clear()
