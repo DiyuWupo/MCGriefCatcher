@@ -1,38 +1,24 @@
 -- ============================================================
 -- DIYU'S GRAVESIGHT // MASTER BASE STATION SCRIPT
 -- ============================================================
--- WELCOME! If you are modifying or reading this code:
--- 
--- 1. CONFIGURATION: You can change default settings like your 
---    player name or monitoring radii in SECTION 1 below.
--- 2. LIVE CONTROLS: Most settings (themes, whitelists, modem 
---    toggles) can also be changed directly inside the game via 
---    the on-screen Settings tab on your monitor!
--- ============================================================
+local YOUR_NAME = "DiyuWupo"           
+local RADIUS = 50                    
+local SCAN_RADIUS = 16               
+local MIN_SCAN_RADIUS = 8            
+local LOG_FILE = "gravesight.log"    
+local CHECK_INTERVAL = 2             
+local SCAN_INTERVAL = 12             
+local MAX_LOG_ENTRIES = 300          
+local SETTINGS_FILE = "gravesight_settings.cfg" 
+local REDNET_CHANNEL = 999           
 
--- ============================================================
--- SECTION 1: CONFIGURATION & USER PREFERENCES
--- [ SAFE TO EDIT ] Change your starting defaults here.
--- ============================================================
-local YOUR_NAME = "DiyuWupo"           -- Your Minecraft username
-local RADIUS = 50                    -- Player monitoring radius (blocks)
-local SCAN_RADIUS = 16               -- Geo Scanner block radius
-local MIN_SCAN_RADIUS = 8            -- Fallback scan radius for smaller scanners
-local LOG_FILE = "gravesight.log"    -- Local file where events are saved
-local CHECK_INTERVAL = 2             -- How often to check for players (seconds)
-local SCAN_INTERVAL = 12             -- How often to scan for Sculk (seconds)
-local MAX_LOG_ENTRIES = 300          -- Max log entries kept in memory
-local SETTINGS_FILE = "gravesight_settings.cfg" -- File storing saved settings
-local REDNET_CHANNEL = 999           -- Wireless network channel for remotes
+local DISCORD_WEBHOOK = ""           
+local DISCORD_ENABLED = false        
+local MODEM_ENABLED_PREF = true      
 
-local DISCORD_WEBHOOK = ""           -- Discord Webhook URL for remote alerts
-local DISCORD_ENABLED = false        -- Toggle Discord notifications (true/false)
-local MODEM_ENABLED_PREF = true      -- Default wireless modem state
-
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 local CONFIG_FILE = "gravesight_config.cfg"
 
--- Internal State Variables
 local setup = {
   configured = false,
   owner = YOUR_NAME,
@@ -42,14 +28,10 @@ local setup = {
 
 local failedAttempts = 0
 
--- ============================================================
--- SECTION 2: SECURITY & PASSWORD HASHING
--- ============================================================
 local function hashPassword(password)
   local salt = "GraveSight_Salt_2026_Secure"
   local str = password .. salt
   local hash = 5381
-  
   for round = 1, 1000 do
     for i = 1, #str do
       hash = ((hash * 33) + string.byte(str, i)) % 2147483647
@@ -101,7 +83,7 @@ local function passwordCorrect(password)
 end
 
 -- ============================================================
--- SECTION 3: 30-SECOND EPIC WARDEN BOOT ANIMATION
+-- 30-SECOND EPIC WARDEN BOOT ANIMATION (CLEANED)
 -- ============================================================
 local function runDramaticWardenBoot()
   term.setBackgroundColor(colors.black)
@@ -268,9 +250,6 @@ loadSetup()
 if not setup.configured then runFirstSetup() end
 YOUR_NAME = setup.owner
 
--- ============================================================
--- SECTION 4: UI THEMES & PALETTES
--- ============================================================
 local UI_THEMES = {
   ["Sculk"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.cyan, selected = colors.blue, warning = colors.orange, danger = colors.red },
   ["Deep"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.blue, selected = colors.cyan, warning = colors.orange, danger = colors.red },
@@ -279,9 +258,6 @@ local UI_THEMES = {
 }
 local UI_THEME = "Sculk"
 
--- ============================================================
--- SECTION 5: HARDWARE SCANNING
--- ============================================================
 local playerDet, envDet, geoScanner, chatBox, modem
 
 local function findPeripheral(possibleNames)
@@ -347,9 +323,6 @@ local state = {
   forceUpdate = false, running = true
 }
 
--- ============================================================
--- SECTION 6: LOGGING & NETWORK BROADCASTS
--- ============================================================
 local function timestamp() return os.date("%H:%M:%S") end
 
 local function broadcastOffsite(alertMsg)
@@ -395,9 +368,6 @@ local function loadSettings()
 end
 loadSettings()
 
--- ============================================================
--- SECTION 7: BACKGROUND MONITORING & FLUX NETWORK LISTENER
--- ============================================================
 local function countAnimals()
   local ok, entities = pcall(function() return envDet.scanEntities(RADIUS) end)
   if not ok or type(entities) ~= "table" then return nil end
@@ -478,9 +448,6 @@ local function backgroundLoop()
   end
 end
 
--- ============================================================
--- SECTION 8: USER INTERFACE (UI)
--- ============================================================
 local w, h = term.getSize()
 local buttons = {}
 
@@ -610,9 +577,6 @@ local function uiLoop()
   end
 end
 
--- ============================================================
--- SECTION 9: EXECUTION
--- ============================================================
 setThemeColors()
 os.pullEvent = os.pullEventRaw
 pcall(function() parallel.waitForAny(backgroundLoop, uiLoop) end)
