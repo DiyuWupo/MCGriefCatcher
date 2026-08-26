@@ -1,137 +1,60 @@
 -- ============================================================
---      DIYU'S GRAVESIGHT // SECURE OFFSITE BLACK BOX
+-- DIYU'S GRAVESIGHT // OFFSITE BLACK BOX RECORDER
 -- ============================================================
-local REDNET_CHANNEL = 999
-local LOG_FILE = "blackbox_breaches.log"
-local running = true
+-- A standalone background logging station that catches all Rednet
+-- broadcasts from your GraveSight base and writes them to a secure file.
+-- ============================================================
 
--- [ WARDEN ROUTE ] Block Ctrl+T termination
+local REDNET_CHANNEL = 999
+local LOG_FILE = "secure_blackbox.log"
+
+-- Disable Ctrl+T termination for physical security
 os.pullEvent = os.pullEventRaw
 
--- Hardware Init
+-- Ensure Modem is active
 local modem = peripheral.find("modem")
 if not modem then
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.red)
   term.clear()
-  term.setCursorPos(1, 1)
-  print("CRITICAL ERROR: No modem detected.")
-  print("Please attach a Wireless or Ender Modem.")
-  while true do os.pullEvent("modem") end
-end
-rednet.open(peripheral.getName(modem))
-
--- Password Security Hashing
-local function hashPassword(password)
-  local salt = "GraveSight_Salt_2026_Secure"
-  local str = password .. salt
-  local hash = 5381
-  for round = 1, 1000 do
-    for i = 1, #str do
-      hash = ((hash * 33) + string.byte(str, i)) % 2147483647
-    end
-  end
-  return tostring(hash)
+  print("CRITICAL: Wireless/Ender Modem required for Black Box log receiver!")
+  return
 end
 
-local passwordHash = ""
-if fs.exists("blackbox_auth.cfg") then
-  local f = fs.open("blackbox_auth.cfg", "r")
-  passwordHash = f.readLine()
-  f.close()
-else
-  term.setBackgroundColor(colors.black)
-  term.clear()
-  term.setCursorPos(2, 2)
-  term.setTextColor(colors.cyan)
-  term.write("BLACK BOX INITIALIZATION")
-  term.setCursorPos(2, 4)
-  term.setTextColor(colors.white)
-  term.write("Set Admin Password > ")
-  term.setTextColor(colors.lightBlue)
-  local pass = read("*")
-  passwordHash = hashPassword(pass)
-  
-  local f = fs.open("blackbox_auth.cfg", "w")
-  f.writeLine(passwordHash)
-  f.close()
+for _, name in ipairs(peripheral.getNames()) do
+  if peripheral.getType(name) == "modem" then rednet.open(name) end
 end
 
--- UI Setup
 term.setBackgroundColor(colors.black)
-term.clear()
-local w, h = term.getSize()
-
-local function drawHeader()
-  term.setCursorPos(1, 1)
-  term.setBackgroundColor(colors.gray)
-  term.setTextColor(colors.cyan)
-  term.write(string.rep(" ", w))
-  term.setCursorPos(2, 1)
-  term.write("GRAVESIGHT // SECURE BLACK BOX RECEIVER")
-  term.setBackgroundColor(colors.black)
-end
-
-local function writeLog(logLine)
-  local f = fs.open(LOG_FILE, "a")
-  if f then
-    f.writeLine(logLine)
-    f.close()
-  end
-end
-
-drawHeader()
-local logWindow = window.create(term.current(), 1, 2, w, h - 2)
-local oldTerm = term.redirect(logWindow)
-term.setTextColor(colors.lightGray)
-print("Listening on protocol: " .. REDNET_CHANNEL)
-print("System active and recording...")
-print(string.rep("-", w))
-
--- Run listener and exit checker concurrently using running flag
-parallel.waitForAny(
-  function()
-    while running do
-      local sender, msg, prot = rednet.receive()
-      if running and tostring(prot) == tostring(REDNET_CHANNEL) then
-        if type(msg) == "table" and msg.system == "GraveSight" then
-          local formatted = string.format("[%s] %s", msg.timestamp, msg.message)
-          
-          term.setTextColor(colors.red)
-          write(">> INCOMING ALERT (Owner: " .. tostring(msg.owner) .. ")\n")
-          term.setTextColor(colors.white)
-          print(formatted)
-          print(string.rep("-", w))
-          
-          writeLog(formatted)
-        end
-      end
-    end
-  end,
-  
-  function()
-    while running do
-      local event, key = os.pullEvent("key")
-      if key == keys.q then
-        term.setTextColor(colors.orange)
-        write("\n[EXIT INITIATED] Password: ")
-        local input = read("*")
-        if hashPassword(input) == passwordHash then
-          running = false -- Signals loops to stop cleanly
-        else
-          term.setTextColor(colors.red)
-          print("ACCESS DENIED. Resuming logging...")
-          term.setTextColor(colors.lightGray)
-        end
-      end
-    end
-  end
-)
-
--- Clean Exit Restoration
-term.redirect(oldTerm)
-term.setBackgroundColor(colors.black)
-term.setTextColor(colors.white)
+term.setTextColor(colors.green)
 term.clear()
 term.setCursorPos(1, 1)
-print("Black Box terminal closed safely.")
+print("========================================")
+print("      GRAVESIGHT // BLACK BOX RECORDER  ")
+print("========================================")
+print(" Listening on Rednet channel " .. REDNET_CHANNEL .. "...")
+print(" Secure logs writing to: " .. LOG_FILE)
+print("========================================")
+
+-- Background Recording Loop
+while true do
+  local senderID, payload, protocol = rednet.receive(REDNET_CHANNEL)
+  
+  if tonumber(protocol) == REDNET_CHANNEL and type(payload) == "table" and payload.system == "GraveSight" then
+    local timeStr = payload.timestamp or os.date("%Y-%m-%d %H:%M:%S")
+    local station = payload.stationName or ("Station #" .. senderID)
+    local msg = payload.message or "Unknown event"
+    
+    local entry = string.format("[%s] (%s) %s", timeStr, station, msg)
+    
+    -- Print live to black box terminal
+    print(entry)
+    
+    -- Save securely to file
+    local f = fs.open(LOG_FILE, "a")
+    if f then
+      f.writeLine(entry)
+      f.close()
+    end
+  end
+end
