@@ -927,6 +927,8 @@ local function draw()
 
     addButton(w - 12, 2, " Update ", function()
       if not state.restartForUpdate then
+        state.updateStatus = "Checking GitHub..."
+        draw()
         checkForUpdate(true)
         os.queueEvent("gravesight_redraw")
       end
