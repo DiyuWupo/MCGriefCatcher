@@ -29,7 +29,7 @@ local DISCORD_WEBHOOK = ""           -- Discord Webhook URL for remote alerts
 local DISCORD_ENABLED = false        -- Toggle Discord notifications (true/false)
 local MODEM_ENABLED_PREF = true      -- Default wireless modem state
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 -- Internal State Variables
@@ -430,7 +430,6 @@ local function backgroundLoop()
   local lastScanTime = os.clock()
 
   while state.running do
-    -- Listen for Flux Network discovery queries & network-wide commands
     if rednet.isOpen() then
       local ok, senderID, msg = pcall(function() return rednet.receive(REDNET_CHANNEL, 0) end)
       if ok and senderID and type(msg) == "table" then
