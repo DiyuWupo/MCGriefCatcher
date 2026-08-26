@@ -16,7 +16,7 @@ local DISCORD_WEBHOOK = ""
 local DISCORD_ENABLED = false        
 local MODEM_ENABLED_PREF = true      
 
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 local setup = {
@@ -83,16 +83,17 @@ local function passwordCorrect(password)
 end
 
 -- ============================================================
--- 30-SECOND EPIC WARDEN BOOT ANIMATION (CLEANED)
+-- 30-SECOND EPIC WARDEN BOOT ANIMATION (PURPLE START FIXED)
 -- ============================================================
 local function runDramaticWardenBoot()
   term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.purple)
   term.clear()
   local w, h = term.getSize()
 
   local function center(y, message, color)
     term.setCursorPos(math.max(1, math.floor((w - #message) / 2) + 1), y)
-    term.setTextColor(color or colors.white)
+    term.setTextColor(color or colors.purple)
     term.write(message)
   end
 
@@ -192,6 +193,7 @@ end
 local function runFirstSetup()
   runDramaticWardenBoot()
   term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.white)
   term.clear()
 
   local w, h = term.getSize()
@@ -288,6 +290,7 @@ local function ensureHardwareAttached()
   local missing = scanHardware()
   while #missing > 0 do
     term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
     term.clear()
     local w, h = term.getSize()
     local function center(y, msg, col)
