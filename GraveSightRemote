@@ -2,18 +2,29 @@
 -- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (ENDER MODEM)
 -- ============================================================
 local REDNET_CHANNEL = 999
-local BASE_ID = 442
+local BASE_ID = 442 -- UPDATE THIS TO MATCH YOUR MAIN COMPUTER ID
 local LOG_FILE = "pocket_alerts.log"
 local running = true
 
 -- Disable Ctrl+T termination
 os.pullEvent = os.pullEventRaw
 
+-- Robust Modem Verification & Opening
 local modem = peripheral.find("modem")
 if not modem then
-  error("Error: Ender/Wireless Modem required on Pocket PC!")
+  term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.red)
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("CRITICAL ERROR: Wireless/Ender Modem required!")
+  while true do os.pullEvent("modem") end
 end
-rednet.open(peripheral.getName(modem))
+
+for _, name in ipairs(peripheral.getNames()) do
+  if peripheral.getType(name) == "modem" then
+    rednet.open(name)
+  end
+end
 
 local w, h = term.getSize()
 local lastTimestamp = "N/A"
@@ -54,13 +65,13 @@ local function drawUI()
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
   
-  -- EXIT button (columns 1 to 6)
+  -- EXIT button
   term.setCursorPos(1, h)
   term.setBackgroundColor(colors.red)
   term.setTextColor(colors.white)
   print(" EXIT ")
   
-  -- SCAN button (columns 9 to 20)
+  -- SCAN button
   term.setCursorPos(10, h)
   term.setBackgroundColor(colors.orange)
   term.setTextColor(colors.white)
@@ -103,12 +114,10 @@ while running do
         
       -- SCAN button check
       elseif x >= 10 and x <= 20 then
-        -- Use targeted broadcast/send fallback to prevent routing path blocks
         local ok = pcall(function()
           rednet.send(BASE_ID, {system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
         end)
         
-        -- If direct ID routing stalls, fallback to channel broadcast with explicit target ID check
         if not ok then
           pcall(function()
             rednet.broadcast({system = "GraveSightCmd", target = BASE_ID, command = "scan"}, REDNET_CHANNEL)
