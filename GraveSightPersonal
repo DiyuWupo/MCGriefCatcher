@@ -387,7 +387,7 @@ if not term.isColor() then
 end
 
 -- ============================================================
--- 2. PERIPHERAL SETUP & HARDWARE CHECK (WITH MODEM MANDATE)
+-- 2. PERIPHERAL SETUP & HARDWARE CHECK (MODEM OPTIONAL)
 -- ------------------------------------------------------------
 local playerDet, envDet, geoScanner, chatBox, modem
 
@@ -406,13 +406,12 @@ local function scanHardware()
   envDet = findPeripheral({"environmentDetector", "environment_detector"})
   geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
   chatBox = findPeripheral({"chatBox", "chat_box"})
-  modem = findPeripheral({"modem"})
+  modem = findPeripheral({"modem"}) -- Optional, won't block startup if missing
 
   local missing = {}
   if not playerDet then table.insert(missing, "Player Detector") end
   if not envDet then table.insert(missing, "Environment Detector") end
   if not geoScanner then table.insert(missing, "Geo Scanner") end
-  if not modem then table.insert(missing, "Wireless/Ender Modem") end
   return missing
 end
 
@@ -450,6 +449,7 @@ local function ensureHardwareAttached()
     missing = scanHardware()
   end
 
+  -- If an optional modem is present, open Rednet automatically
   if modem then
     pcall(function() rednet.open(peripheral.getName(modem)) end)
   end
@@ -879,7 +879,7 @@ local function draw()
 
     term.setCursorPos(2, contentTop + 2)
     term.setTextColor(colors.lightBlue)
-    term.write("Code: v" .. VERSION + " ID: " .. os.getComputerID() .. " | " .. (state.updateStatus or "Not checked"))
+    term.write("Code: v" .. VERSION .. " | ID: " .. os.getComputerID() .. " | " .. (state.updateStatus or "Not checked"))
 
     addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
 
@@ -1218,7 +1218,7 @@ checkForUpdate = function(manual)
 
   if not finalSource or getVersionFromSource(finalSource) ~= remoteVersion then
     if fs.exists(PROGRAM_PATH) then fs.delete(PROGRAM_PATH) end
-    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(PROGRAM_PATH, UPDATE_BACKUP) end) end
+    if fs.exists(UPDATE_BACKUP) then pcall(function() fs.copy(UPDATE_BACKUP, PROGRAM_PATH) end) end
     state.updateStatus = "Final verification failed"
     addLog("Update failed: installed file did not verify. Previous version restored.")
     return false
