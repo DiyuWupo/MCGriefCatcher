@@ -27,7 +27,6 @@ local w, h = term.getSize()
 -- NATIVE NETWORK DISCOVERY
 -- ============================================================
 local targetID = nil
-local stationName = "GraveSight Network"
 
 while not targetID do
   term.setBackgroundColor(colors.black)
@@ -54,7 +53,7 @@ while not targetID do
     print("Press ANY KEY to rescan...")
     os.pullEventRaw("key")
   else
-    -- Grab the first responding server ID for simplicity
+    -- Grab the first responding server ID
     targetID = servers[1]
   end
 end
