@@ -1,8 +1,9 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (NATIVE REDNET)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (CONFIGURABLE)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
+local CONFIG_FILE = "pocket_config.cfg"
 local running = true
 
 os.pullEvent = os.pullEventRaw
@@ -24,6 +25,55 @@ end
 local w, h = term.getSize()
 
 -- ============================================================
+-- INITIALIZATION & CONFIG
+-- ============================================================
+local targetOwner = ""
+
+local function loadPocketConfig()
+  if not fs.exists(CONFIG_FILE) then return false end
+  local file = fs.open(CONFIG_FILE, "r")
+  if not file then return false end
+  targetOwner = file.readLine()
+  file.close()
+  return targetOwner and targetOwner ~= ""
+end
+
+local function savePocketConfig(owner)
+  local file = fs.open(CONFIG_FILE, "w")
+  if not file then return false end
+  file.writeLine(owner)
+  file.close()
+end
+
+if not loadPocketConfig() then
+  term.setBackgroundColor(colors.black)
+  term.setTextColor(colors.white)
+  term.clear()
+  
+  local function center(y, msg, col)
+    term.setCursorPos(math.max(1, math.floor((w - #msg) / 2) + 1), y)
+    term.setTextColor(col or colors.white)
+    term.write(msg)
+  end
+
+  center(2, "========================================", colors.gray)
+  center(3, "    POCKET REMOTE CONFIGURATION         ", colors.cyan)
+  center(4, "========================================", colors.gray)
+  
+  term.setCursorPos(3, 7)
+  term.setTextColor(colors.cyan)
+  term.write("ENTER BASE PC USERNAME:")
+  term.setCursorPos(3, 9)
+  term.setTextColor(colors.white)
+  term.write("> ")
+  term.setTextColor(colors.lightBlue)
+  
+  local input = read()
+  targetOwner = input:gsub("%s+", "")
+  savePocketConfig(targetOwner)
+end
+
+-- ============================================================
 -- NATIVE NETWORK DISCOVERY
 -- ============================================================
 local targetID = nil
@@ -33,33 +83,38 @@ while not targetID do
   term.clear()
   term.setCursorPos(2, 2)
   term.setTextColor(colors.cyan)
-  print("SCANNING FOR GRAVESIGHT GRIDS...")
+  print("LINKING TO: " .. targetOwner .. "'s Grid...")
 
-  -- Search for computers hosting the "GraveSight" protocol
-  local servers = {rednet.lookup("GraveSight")}
+  -- Lookup host matching the base owner's network name
+  targetID = rednet.lookup("GraveSight", targetOwner .. "'s Network")
   
-  if #servers == 0 then
+  if not targetID then
+    -- Fallback lookup check by protocol alone if exact name lookup misses
+    local servers = {rednet.lookup("GraveSight")}
+    if #servers > 0 then
+      targetID = servers[1]
+    end
+  end
+
+  if not targetID then
     term.setBackgroundColor(colors.black)
     term.clear()
     term.setCursorPos(2, 2)
     term.setTextColor(colors.red)
-    print("NO GRAVESIGHT GRIDS FOUND.")
+    print("GRID NOT FOUND: " .. targetOwner)
     term.setCursorPos(2, 4)
     term.setTextColor(colors.white)
     print("Ensure base computer is online")
     print("and has modem active.")
     term.setCursorPos(2, h)
     term.setTextColor(colors.yellow)
-    print("Press ANY KEY to rescan...")
+    print("Press ANY KEY to retry...")
     os.pullEventRaw("key")
-  else
-    -- Grab the first responding server ID
-    targetID = servers[1]
   end
 end
 
 local lastTimestamp = "N/A"
-local lastAlert = "Connected to Base ID: " .. targetID
+local lastAlert = "Connected to " .. targetOwner .. "'s Network"
 
 local function drawUI()
   term.setBackgroundColor(colors.black)
@@ -68,7 +123,8 @@ local function drawUI()
   term.setCursorPos(1, 1)
   term.setBackgroundColor(colors.blue)
   term.setTextColor(colors.white)
-  local title = " GRAVESIGHT REMOTE "
+  local title = " " .. targetOwner .. "'s Remote "
+  if #title > w then title = " REMOTE " end
   local pad = string.rep(" ", math.floor((w - #title)/2))
   term.write(pad .. title .. string.rep(" ", math.ceil((w - #title)/2)))
   
