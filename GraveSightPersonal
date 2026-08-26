@@ -16,7 +16,7 @@ local DISCORD_WEBHOOK = ""
 local DISCORD_ENABLED = false        
 local MODEM_ENABLED_PREF = true      
 
-local VERSION = "1.2.6"
+local VERSION = "1.2.7"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 local setup = {
@@ -330,6 +330,8 @@ local function ensureHardwareAttached()
         pcall(function() rednet.open(side) end)
       end
     end
+    -- Host native rednet protocol for pocket remotes
+    pcall(function() rednet.host("GraveSight", setup.stationName) end)
   end
 end
 
@@ -427,15 +429,7 @@ local function backgroundLoop()
     if rednet.isOpen() then
       local ok, senderID, msg = pcall(function() return rednet.receive(REDNET_CHANNEL, 0) end)
       if ok and senderID and type(msg) == "table" then
-        if msg.system == "GraveSightQuery" and msg.command == "discover" then
-          pcall(function()
-            rednet.send(senderID, {
-              system = "GraveSightAnnounce",
-              stationName = setup.stationName,
-              owner = setup.owner
-            }, REDNET_CHANNEL)
-          end)
-        elseif msg.system == "GraveSightCmd" and (not msg.targetNetwork or msg.targetNetwork == setup.stationName) and msg.command == "scan" then
+        if msg.system == "GraveSightCmd" and msg.command == "scan" then
           state.forceUpdate = true
           addLog("REMOTE: Manual scan requested via network grid.")
         end
@@ -557,7 +551,12 @@ local function draw()
     addButton(21, contentTop, " RENAME ", function()
       term.setCursorPos(2, contentBottom); term.clearLine(); term.setTextColor(theme().accent); term.write("New Name: ")
       local newName = read()
-      if newName and newName ~= "" then setup.stationName = newName; state.settingsMessage = "Renamed!" end
+      if newName and newName ~= "" then 
+        setup.stationName = newName
+        pcall(function() rednet.unhost("GraveSight") end)
+        pcall(function() rednet.host("GraveSight", setup.stationName) end)
+        state.settingsMessage = "Renamed!" 
+      end
     end)
 
     term.setCursorPos(30, contentTop); setAccent(); term.write("THEME:")
@@ -578,6 +577,11 @@ local function draw()
         if peripheral.isPresent(side) and peripheral.getType(side) == "modem" then
           if rednet.isOpen() then rednet.close(side) else rednet.open(side) end
         end
+      end
+      if rednet.isOpen() then
+        pcall(function() rednet.host("GraveSight", setup.stationName) end)
+      else
+        pcall(function() rednet.unhost("GraveSight") end)
       end
     end, rednet.isOpen() and colors.green or colors.red, colors.white)
 
@@ -611,6 +615,7 @@ setThemeColors()
 os.pullEvent = os.pullEventRaw
 pcall(function() parallel.waitForAny(backgroundLoop, uiLoop) end)
 
+pcall(function() rednet.unhost("GraveSight") end)
 term.setBackgroundColor(colors.black)
 term.setTextColor(colors.white)
 term.clear()
