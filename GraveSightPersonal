@@ -1,5 +1,5 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // MASTER BASE STATION SCRIPT
+-- DIYU'S GRAVESIGHT // MASTER BASE STATION SCRIPT (FIXED)
 -- ============================================================
 local YOUR_NAME = "DiyuWupo"           
 local RADIUS = 50                    
@@ -16,7 +16,7 @@ local DISCORD_WEBHOOK = ""
 local DISCORD_ENABLED = false        
 local MODEM_ENABLED_PREF = true      
 
-local VERSION = "1.2.7"
+local VERSION = "1.2.8"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 local setup = {
@@ -330,7 +330,6 @@ local function ensureHardwareAttached()
         pcall(function() rednet.open(side) end)
       end
     end
-    -- Host native rednet protocol for pocket remotes
     pcall(function() rednet.host("GraveSight", setup.stationName) end)
   end
 end
@@ -417,7 +416,7 @@ local function countSculk()
 end
 
 local function backgroundLoop()
-  sleep(5) -- Login buffer: lets chunks and player data settle before first heavy scan
+  sleep(5)
   state.animals = countAnimals() or 0
   local sc, cat = countSculk()
   state.sculk, state.hasCatalyst = sc or 0, cat or false
@@ -543,7 +542,7 @@ local function draw()
     addButton(w - 6, 2, " Down ", function() state.scrollOffset = math.max(state.scrollOffset - visibleRows, 0) end)
 
   elseif state.activeTab == "settings" then
-    term.setBackgroundColor(theme().background)
+    term.setBackgroundColor(colors.black)
     term.setTextColor(theme().text)
 
     term.setCursorPos(2, contentTop)
