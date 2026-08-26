@@ -1,6 +1,6 @@
 -- DEFAULT: CAUTIOUS Sculk Suspicion Analysis
 -- ============================================================
---          DIYU'S GRAVESIGHT // PLAYER QUICK GUIDE
+--     DIYU'S GRAVESIGHT // PLAYER QUICK GUIDE
 -- ============================================================
 --  WELCOME! IF YOU ARE LOOKING AT THIS CODE:
 --
@@ -137,45 +137,122 @@ local function runDramaticWardenBoot()
     term.write(message)
   end
 
-  local sequence = {
-    { text = ">> INITIATING DEEP DARK PROTOCOL v" .. VERSION .. " <<", color = colors.cyan, delay = 1.0 },
-    { text = "[!] SENSING VIBRATIONS IN LOCAL SUBSTRATE...", color = colors.gray, delay = 1.2 },
-    { text = "[*] CALIBRATING SCULK RESONANCE FREQUENCY...", color = colors.blue, delay = 1.3 },
-    { text = "[!] ANCIENT CATALYST DETECTED -- AWAKENING CORE", color = colors.purple, delay = 1.5 },
-    { text = "[*] ESTABLISHING NEURAL TENDONS...", color = colors.lightBlue, delay = 1.2 },
-    { text = "[!] HARVESTING BIO-ACOUSTIC SIGNATURES...", color = colors.cyan, delay = 1.3 },
-    { text = "[*] SYNCHRONIZING WARDEN BIOMETRICS...", color = colors.lime, delay = 1.5 },
-    { text = ">> ALL SENSORY TENDONS FULLY ENGAGED <<", color = colors.green, delay = 1.0 }
-  }
-
-  local startY = math.max(2, math.floor((h - #sequence) / 2) - 1)
-
-  for i, step in ipairs(sequence) do
-    center(startY + (i - 1), step.text, step.color)
-    
-    local barW = math.min(30, w - 4)
-    local barX = math.floor((w - barW) / 2) + 1
-    local barY = math.min(h - 1, startY + #sequence + 1)
-    
-    for b = 1, barW do
-      term.setCursorPos(barX + b - 1, barY)
-      term.setBackgroundColor((b / barW <= i / #sequence) and colors.cyan or colors.gray)
-      term.write(" ")
+  local function glitchLine(length)
+    local chars = "*#@%&?!/\\|{}[]<>"
+    local str = ""
+    for i = 1, length do
+      local r = math.random(1, #chars)
+      str = str .. chars:sub(r, r)
     end
-    term.setBackgroundColor(colors.black)
-    
-    sleep(step.delay)
+    return str
   end
 
-  for pulse = 1, 3 do
-    term.setTextColor(pulse % 2 == 1 and colors.cyan or colors.lightBlue)
-    center(startY + #sequence + 3, "::: WARDEN SENSORS PULSING :::", pulse % 2 == 1 and colors.cyan or colors.lightBlue)
-    sleep(0.5)
-    center(startY + #sequence + 3, "   WARDEN SENSORS PULSING   ", colors.black)
-    sleep(0.5)
+  local boxTop = math.max(1, math.floor((h - 12) / 2))
+
+  local function drawPristineBox()
+    term.setTextColor(colors.magenta)
+    center(boxTop,     "╔════════════════════════════════════╗")
+    center(boxTop + 1, "║                                    ║")
+    center(boxTop + 2, "║         DIYU'S GRAVESIGHT          ║")
+    center(boxTop + 3, "║                                    ║")
+    center(boxTop + 4, "║     ARCANE OBSERVATION ENGINE      ║")
+    center(boxTop + 5, "║                                    ║")
+    center(boxTop + 6, "║                                    ║")
+    center(boxTop + 7, "║                                    ║")
+    center(boxTop + 8, "║                                    ║")
+    center(boxTop + 9, "║                                    ║")
+    center(boxTop + 10,"║                                    ║")
+    center(boxTop + 11,"╚════════════════════════════════════╝")
+
+    center(boxTop + 2, "DIYU'S GRAVESIGHT", colors.white)
+    center(boxTop + 4, "ARCANE OBSERVATION ENGINE", colors.lightGray)
   end
 
+  -- ==========================================
+  -- PHASE 1: The Wizard's Masterpiece (0-7s)
+  -- ==========================================
+  drawPristineBox()
+  sleep(1.0)
+  center(boxTop + 6, " MEMORY .......... OK ", colors.lightGray)
+  sleep(1.5)
+  center(boxTop + 7, " RESONANCE ....... OK ", colors.lightGray)
+  sleep(1.5)
+  center(boxTop + 8, " WARDING ......... OK ", colors.lightGray)
+  sleep(1.5)
+
+  center(boxTop + 10, " ARCANE LINK ESTABLISHED ", colors.magenta)
+  sleep(1.5)
+
+  -- ==========================================
+  -- PHASE 2: First Contact
+  -- ==========================================
   term.clear()
+  drawPristineBox()
+  center(boxTop + 6, " COMMUNICATION PROTOCOL BEGIN ", colors.white)
+  sleep(1.5)
+
+  center(boxTop + 8, " INCOMING RESONANCE ", colors.magenta)
+  sleep(1.0)
+  center(boxTop + 9, " PATTERN ......... UNKNOWN ", colors.orange)
+  sleep(1.5)
+
+  -- ==========================================
+  -- PHASE 3: The Corruption Rhythm (8s)
+  -- ==========================================
+  center(boxTop + 10, " TRANSLATION ..... FAILED ", colors.red)
+  sleep(1.0)
+
+  -- Sculk cyan starts bleeding in
+  term.clear()
+  drawPristineBox()
+  center(boxTop + 5, "║    " .. glitchLine(28) .. "    ║", colors.cyan) 
+  center(boxTop + 7, " RETRYING ", colors.white)
+  sleep(0.8)
+
+  center(boxTop + 8, " RESONANCE MATCH ... 12% ", colors.cyan)
+  sleep(0.4)
+
+  center(boxTop + 9, " UNKNOWN ENTITY PRESENT ", colors.lightBlue)
+  sleep(0.3)
+
+  -- The erratic heartbeat: rapid -> skip -> rapid -> pause -> double-pulse
+  local glitchRhythm = {0.2, 0.2, 1.2, 0.1, 0.1, 0.8, 0.1, 0.1}
+  
+  for step, delay in ipairs(glitchRhythm) do
+     local row = math.random(boxTop + 1, boxTop + 10)
+     
+     -- Colors start shifting from Wizard (magenta) to Warden (cyan/blue)
+     local col = (math.random() > 0.5) and colors.cyan or colors.blue
+     if step > 3 then 
+        col = (math.random() > 0.3) and colors.cyan or colors.magenta 
+     end
+
+     term.setTextColor(col)
+     center(row, "║ " .. glitchLine(34) .. " ║", col)
+     sleep(delay)
+  end
+
+  -- Violent pulse right before the end
+  for i = 1, 8 do
+    local row = math.random(boxTop, boxTop + 11)
+    center(row, glitchLine(38), colors.cyan)
+    sleep(0.05)
+  end
+
+  -- ==========================================
+  -- PHASE 4: Final Rune Flash & Blackout
+  -- ==========================================
+  term.setBackgroundColor(colors.cyan)
+  for i = 1, h do
+    term.setCursorPos(1, i)
+    term.setTextColor(colors.black)
+    term.write(glitchLine(w))
+  end
+  sleep(0.1) -- 1 blinding frame
+
+  term.setBackgroundColor(colors.black)
+  term.clear()
+  sleep(0.5) -- 0.5s dead silence
 end
 
 local function runFirstSetup()
