@@ -1,5 +1,5 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (PROGRESS BAR)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (ULTRA LIGHT)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
@@ -83,7 +83,7 @@ while not targetID do
   term.clear()
   term.setCursorPos(2, 2)
   term.setTextColor(colors.cyan)
-  print("LINKING TO: " .. targetOwner .. "'s Grid...")
+  print("LINKING TO: " + targetOwner + "'s Grid...")
 
   targetID = rednet.lookup("GraveSight", targetOwner .. "'s Network")
   
@@ -114,7 +114,7 @@ end
 local lastTimestamp = "N/A"
 local lastAlert = "Connected to " .. targetOwner .. "'s Network"
 
-local function drawUI(progressPercent)
+local function drawUI()
   term.setBackgroundColor(colors.black)
   term.clear()
   
@@ -143,39 +143,22 @@ local function drawUI(progressPercent)
   term.setTextColor(colors.white)
   print(lastAlert)
 
-  -- PROGRESS BAR RENDERER
-  if progressPercent then
-    term.setCursorPos(1, 8)
-    term.setTextColor(colors.cyan)
-    print("SYNCING GRID:")
-    
-    local barWidth = w - 4
-    local filled = math.floor((progressPercent / 100) * barWidth)
-    term.setCursorPos(2, 9)
-    term.setBackgroundColor(colors.gray)
-    term.write(string.rep(" ", barWidth))
-    
-    if filled > 0 then
-      term.setCursorPos(2, 9)
-      term.setBackgroundColor(colors.lime)
-      term.write(string.rep(" ", filled))
-    end
-    term.setBackgroundColor(colors.black)
-  end
-
   term.setCursorPos(1, h - 1)
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
   
+  -- BUTTONS AT BOTTOM ROW (h)
   term.setCursorPos(1, h)
   term.setBackgroundColor(colors.red)
   term.setTextColor(colors.white)
-  print(" EXIT ")
+  term.write(" EXIT ")
   
   term.setCursorPos(10, h)
   term.setBackgroundColor(colors.orange)
   term.setTextColor(colors.white)
-  print(" SCAN ")
+  term.write(" SCAN ")
+  
+  term.setBackgroundColor(colors.black)
 end
 
 drawUI()
@@ -195,20 +178,15 @@ while running do
     end
     
   elseif event == "mouse_click" then
-    local button, x, y = p1, p2, p3
+    -- Correct mouse mapping: p1 = button, p2 = x, p3 = y
+    local btn, x, y = p1, p2, p3
+    
     if y == h then
+      -- EXIT button spans from x=1 to x=6 (" EXIT ")
       if x >= 1 and x <= 6 then
         running = false
+      -- SCAN button spans from x=10 to x=15 (" SCAN ")
       elseif x >= 10 and x <= 16 then
-        lastTimestamp = os.date("%H:%M:%S")
-        lastAlert = "Requesting remote scan..."
-        
-        -- Animate smooth progress bar steps
-        for p = 20, 100, 20 do
-          drawUI(p)
-          sleep(0.08)
-        end
-        
         pcall(function()
           rednet.send(targetID, {
             system = "GraveSightCmd",
@@ -216,8 +194,8 @@ while running do
           }, REDNET_CHANNEL)
         end)
         
+        lastTimestamp = os.date("%H:%M:%S")
         lastAlert = "Scan requested from base..."
-        sleep(0.3)
         drawUI()
       end
     end
