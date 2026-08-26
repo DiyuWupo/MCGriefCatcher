@@ -1,5 +1,5 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE (VISIBLE PROGRESS BAR)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE (GUARANTEED VISIBLE BAR)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
@@ -143,7 +143,7 @@ local function drawUI(progressPercent)
   term.setTextColor(colors.white)
   print(lastAlert)
 
-  -- PROGRESS BAR (Visible & Rendered)
+  -- PROGRESS BAR (Forced Direct Draw)
   if progressPercent then
     term.setCursorPos(1, 8)
     term.setTextColor(colors.cyan)
@@ -202,27 +202,21 @@ while running do
     local btn, x, y = p1, p2, p3
     
     if y == h then
-      -- EXIT button (x: 1 to 6)
+      -- EXIT button
       if x >= 1 and x <= 6 then
         running = false
-      -- SCAN button (x: 10 to 16)
+      -- SCAN button
       elseif x >= 10 and x <= 16 then
         lastTimestamp = os.date("%H:%M:%S")
         lastAlert = "Transmitting scan packet..."
         
-        -- VISIBLE PROGRESS BAR ANIMATION (Smooth & slow enough to see)
-        for p = 25, 100, 25 do
+        -- FORCED NON-BLOCKING DIRECT RENDER
+        for p = 20, 100, 20 do
           drawUI(p)
-          
-          -- Reliable timer wait that doesn't lock the game tick
-          local timerID = os.startTimer(0.15)
-          while true do
-            local ev, id = os.pullEventRaw()
-            if ev == "timer" and id == timerID then break end
-          end
+          os.sleep(0.1) -- Yields safely to CC window manager while allowing screen buffer flush
         end
         
-        -- Send the scan command to the base
+        -- Send command packet after bar completes
         pcall(function()
           rednet.send(targetID, {
             system = "GraveSightCmd",
@@ -231,15 +225,8 @@ while running do
         end)
         
         lastAlert = "Scan requested from base..."
-        
-        -- Short pause so you can read the status before clearing the bar
-        local endTimer = os.startTimer(0.5)
-        while true do
-          local ev, id = os.pullEventRaw()
-          if ev == "timer" and id == endTimer then break end
-        end
-        
-        drawUI() -- Redraws normal UI without progress bar
+        os.sleep(0.3)
+        drawUI() -- Redraw clear UI after completed status display
       end
     end
   end
