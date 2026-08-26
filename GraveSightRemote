@@ -178,7 +178,6 @@ while running do
       if x >= 1 and x <= 6 then
         running = false
       elseif x >= 10 and x <= 16 then
-        -- Broadcasts command targeted specifically to this Flux network name
         pcall(function()
           rednet.broadcast({
             system = "GraveSightCmd",
