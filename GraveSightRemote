@@ -1,5 +1,5 @@
 -- ============================================================
--- DIYU'S GRAVESIGHT // POCKET REMOTE TERMINAL (FINAL SAFE)
+-- DIYU'S GRAVESIGHT // POCKET REMOTE (VISIBLE PROGRESS BAR)
 -- ============================================================
 local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
@@ -143,14 +143,15 @@ local function drawUI(progressPercent)
   term.setTextColor(colors.white)
   print(lastAlert)
 
-  -- SAFE PROGRESS BAR RENDERER
+  -- PROGRESS BAR (Visible & Rendered)
   if progressPercent then
     term.setCursorPos(1, 8)
     term.setTextColor(colors.cyan)
-    print("SYNCING GRID:")
+    print("SYNCING SCAN (" .. progressPercent .. "%)")
     
-    local barWidth = w - 4
+    local barWidth = w - 2
     local filled = math.floor((progressPercent / 100) * barWidth)
+    
     term.setCursorPos(2, 9)
     term.setBackgroundColor(colors.gray)
     term.write(string.rep(" ", barWidth))
@@ -167,7 +168,7 @@ local function drawUI(progressPercent)
   term.setTextColor(colors.gray)
   term.write(string.rep("-", w))
   
-  -- BUTTONS AT BOTTOM ROW (h)
+  -- BUTTONS
   term.setCursorPos(1, h)
   term.setBackgroundColor(colors.red)
   term.setTextColor(colors.white)
@@ -209,9 +210,19 @@ while running do
         lastTimestamp = os.date("%H:%M:%S")
         lastAlert = "Transmitting scan packet..."
         
-        -- Instant step rendering to keep game fully responsive
-        drawUI(50)
+        -- VISIBLE PROGRESS BAR ANIMATION (Smooth & slow enough to see)
+        for p = 25, 100, 25 do
+          drawUI(p)
+          
+          -- Reliable timer wait that doesn't lock the game tick
+          local timerID = os.startTimer(0.15)
+          while true do
+            local ev, id = os.pullEventRaw()
+            if ev == "timer" and id == timerID then break end
+          end
+        end
         
+        -- Send the scan command to the base
         pcall(function()
           rednet.send(targetID, {
             system = "GraveSightCmd",
@@ -219,14 +230,16 @@ while running do
           }, REDNET_CHANNEL)
         end)
         
-        drawUI(100)
-        
-        -- Safe non-blocking yield step
-        os.queueEvent("dummy_yield")
-        os.pullEvent("dummy_yield")
-        
         lastAlert = "Scan requested from base..."
-        drawUI()
+        
+        -- Short pause so you can read the status before clearing the bar
+        local endTimer = os.startTimer(0.5)
+        while true do
+          local ev, id = os.pullEventRaw()
+          if ev == "timer" and id == endTimer then break end
+        end
+        
+        drawUI() -- Redraws normal UI without progress bar
       end
     end
   end
