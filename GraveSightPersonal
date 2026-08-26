@@ -39,8 +39,9 @@ local REDNET_CHANNEL = 999           -- Wireless blackbox broadcast channel
 
 local DISCORD_WEBHOOK = ""           -- Saved Discord Webhook URL
 local DISCORD_ENABLED = false        -- Discord alert toggle (true/false)
+local MODEM_ENABLED_PREF = true      -- Default modem preference
 
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/main/gravesight.lua"
 local UPDATE_INTERVAL = 31536000     -- GitHub update check delay (Startup/Manual only)
 local UPDATE_TEMP = ".gravesight_update.tmp"
@@ -342,7 +343,7 @@ local WHITELIST_FILE = "gravesight_whitelist.cfg"
 local whitelist = {}
 
 -- ============================================================
--- UI COLORS & THEMES RESTORED
+-- UI COLORS & THEMES
 -- ============================================================
 local UI_THEMES = {
   ["Sculk"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.cyan, selected = colors.blue, warning = colors.orange, danger = colors.red },
@@ -419,9 +420,12 @@ local function ensureHardwareAttached()
     missing = scanHardware()
   end
 
-  for _, name in ipairs(peripheral.getNames()) do
-    if peripheral.getType(name) == "modem" then
-      pcall(function() rednet.open(name) end)
+  -- Apply initial modem preference
+  if modem and MODEM_ENABLED_PREF then
+    for _, name in ipairs(peripheral.getNames()) do
+      if peripheral.getType(name) == "modem" then
+        pcall(function() rednet.open(name) end)
+      end
     end
   end
 end
@@ -533,7 +537,8 @@ local function saveSettings()
     radius = RADIUS, scanRadius = SCAN_RADIUS, checkInterval = CHECK_INTERVAL,
     scanInterval = SCAN_INTERVAL, updateInterval = UPDATE_INTERVAL,
     theme = UI_THEME, chatAlerts = chatBox ~= nil and true or false, animals = {}, sculk = {},
-    discordWebhook = DISCORD_WEBHOOK, discordEnabled = DISCORD_ENABLED, stationName = setup.stationName
+    discordWebhook = DISCORD_WEBHOOK, discordEnabled = DISCORD_ENABLED, stationName = setup.stationName,
+    modemEnabled = MODEM_ENABLED_PREF
   }
   for name, enabled in pairs(ANIMAL_TYPES) do data.animals[name] = enabled end
   for name, enabled in pairs(SCULK_NAMES) do data.sculk[name] = enabled end
@@ -561,6 +566,7 @@ local function loadSettings()
   if type(data.discordWebhook) == "string" then DISCORD_WEBHOOK = data.discordWebhook end
   if type(data.discordEnabled) == "boolean" then DISCORD_ENABLED = data.discordEnabled end
   if type(data.stationName) == "string" and data.stationName ~= "" then setup.stationName = data.stationName end
+  if type(data.modemEnabled) == "boolean" then MODEM_ENABLED_PREF = data.modemEnabled end
 
   if type(data.animals) == "table" then
     for name in pairs(ANIMAL_TYPES) do
@@ -800,7 +806,7 @@ local function backgroundLoop()
 end
 
 -- ============================================================
--- 9. USER INTERFACE & THEME CONTROLS
+-- 9. USER INTERFACE & SETTINGS CONTROLS
 -- ------------------------------------------------------------
 local w, h = term.getSize()
 local buttons = {}
@@ -852,7 +858,7 @@ local function draw()
 
     term.setCursorPos(2, contentTop + 2)
     term.setTextColor(colors.lightBlue)
-    term.write("ID: " .. os.getComputerID() .. " | " .. (state.updateStatus or "Not checked"))
+    term.write("ID: " .. os.getComputerID() .. " | Net: " .. (rednet.isOpen() and "ONLINE" or "OFFLINE"))
 
     addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
     addButton(w - 12, 2, " Update ", function()
@@ -936,7 +942,7 @@ local function draw()
       end
     end)
 
-    -- Theme Selector Buttons Restored
+    -- Theme Selector Buttons
     term.setCursorPos(34, contentTop)
     setAccent()
     term.write("THEME:")
@@ -945,32 +951,60 @@ local function draw()
     addButton(49, contentTop, " A ", function() setTheme("Ancient") end, UI_THEME == "Ancient" and theme().accent or theme().panel)
     addButton(53, contentTop, " W ", function() setTheme("Warden") end, UI_THEME == "Warden" and theme().accent or theme().panel)
 
-    -- Owner Settings
+    -- Modem Toggle Setting
     term.setCursorPos(2, contentTop + 2)
+    setAccent()
+    term.write("MODEM: ")
+    setMuted()
+    term.write(rednet.isOpen() and "ONLINE  " or "OFFLINE ")
+    addButton(18, contentTop + 2, rednet.isOpen() and " DISABLE " or " ENABLE  ", function()
+      local modemFound = false
+      for _, name in ipairs(peripheral.getNames()) do
+        if peripheral.getType(name) == "modem" then
+          modemFound = true
+          if rednet.isOpen() then
+            rednet.close(name)
+            MODEM_ENABLED_PREF = false
+            state.settingsMessage = "Modem disabled"
+          else
+            rednet.open(name)
+            MODEM_ENABLED_PREF = true
+            state.settingsMessage = "Modem enabled & online"
+          end
+        end
+      end
+      if not modemFound then
+        state.settingsMessage = "No modem attached!"
+      end
+      saveSettings()
+    end, rednet.isOpen() and colors.green or colors.red, colors.white)
+
+    -- Owner Settings
+    term.setCursorPos(2, contentTop + 4)
     setAccent()
     term.write("OWNER: ")
     setMuted()
     term.write(setup.owner .. " ")
-    addButton(18, contentTop + 2, " CHANGE ", function() changeOwnerProtected() end)
+    addButton(18, contentTop + 4, " CHANGE ", function() changeOwnerProtected() end)
 
     -- Radii Controls
-    term.setCursorPos(2, contentTop + 4)
+    term.setCursorPos(2, contentTop + 6)
     term.setTextColor(theme().text)
     term.write("Player Radius: " .. string.format("%-3d", RADIUS))
-    addButton(21, contentTop + 4, " - ", function() RADIUS = math.max(4, RADIUS - 2); saveSettings() end)
-    addButton(25, contentTop + 4, " + ", function() RADIUS = math.min(128, RADIUS + 2); saveSettings() end)
+    addButton(21, contentTop + 6, " - ", function() RADIUS = math.max(4, RADIUS - 2); saveSettings() end)
+    addButton(25, contentTop + 6, " + ", function() RADIUS = math.min(128, RADIUS + 2); saveSettings() end)
 
-    term.setCursorPos(30, contentTop + 4)
+    term.setCursorPos(30, contentTop + 6)
     term.write("Geo Radius: " .. string.format("%-2d", SCAN_RADIUS))
-    addButton(44, contentTop + 4, " - ", function() SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, SCAN_RADIUS - 1); saveSettings() end)
-    addButton(48, contentTop + 4, " + ", function() SCAN_RADIUS = math.min(32, SCAN_RADIUS + 1); saveSettings() end)
+    addButton(44, contentTop + 6, " - ", function() SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, SCAN_RADIUS - 1); saveSettings() end)
+    addButton(48, contentTop + 6, " + ", function() SCAN_RADIUS = math.min(32, SCAN_RADIUS + 1); saveSettings() end)
 
     -- Whitelist Management
-    term.setCursorPos(2, contentTop + 6)
+    term.setCursorPos(2, contentTop + 8)
     setAccent()
     term.write("WHITELIST: ")
-    addButton(14, contentTop + 6, " + ADD ", function()
-      term.setCursorPos(23, contentTop + 6)
+    addButton(14, contentTop + 8, " + ADD ", function()
+      term.setCursorPos(23, contentTop + 8)
       term.setTextColor(theme().accent)
       term.write("Type Name: ")
       term.setTextColor(theme().text)
@@ -1051,7 +1085,6 @@ local function uiLoop()
   end
 end
 
--- Version checker stubs
 checkForUpdate = function() end
 
 setThemeColors()
