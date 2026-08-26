@@ -168,9 +168,6 @@ local function runDramaticWardenBoot()
     center(boxTop + 4, "ARCANE OBSERVATION ENGINE", colors.lightGray)
   end
 
-  -- ==========================================
-  -- PHASE 1: The Wizard's Masterpiece (0-7s)
-  -- ==========================================
   drawPristineBox()
   sleep(1.0)
   center(boxTop + 6, " MEMORY .......... OK ", colors.lightGray)
@@ -179,30 +176,21 @@ local function runDramaticWardenBoot()
   sleep(1.5)
   center(boxTop + 8, " WARDING ......... OK ", colors.lightGray)
   sleep(1.5)
-
   center(boxTop + 10, " ARCANE LINK ESTABLISHED ", colors.magenta)
   sleep(1.5)
 
-  -- ==========================================
-  -- PHASE 2: First Contact
-  -- ==========================================
   term.clear()
   drawPristineBox()
   center(boxTop + 6, " COMMUNICATION PROTOCOL BEGIN ", colors.white)
   sleep(1.5)
-
   center(boxTop + 8, " INCOMING RESONANCE ", colors.magenta)
   sleep(1.0)
   center(boxTop + 9, " PATTERN ......... UNKNOWN ", colors.orange)
   sleep(1.5)
 
-  -- ==========================================
-  -- PHASE 3: The Corruption Rhythm (8s)
-  -- ==========================================
   center(boxTop + 10, " TRANSLATION ..... FAILED ", colors.red)
   sleep(1.0)
 
-  -- Sculk cyan starts bleeding in
   term.clear()
   drawPristineBox()
   center(boxTop + 5, "║    " .. glitchLine(28) .. "    ║", colors.cyan) 
@@ -211,58 +199,46 @@ local function runDramaticWardenBoot()
 
   center(boxTop + 8, " RESONANCE MATCH ... 12% ", colors.cyan)
   sleep(0.4)
-
   center(boxTop + 9, " UNKNOWN ENTITY PRESENT ", colors.lightBlue)
   sleep(0.3)
 
-  -- The erratic heartbeat: rapid -> skip -> rapid -> pause -> double-pulse
   local glitchRhythm = {0.2, 0.2, 1.2, 0.1, 0.1, 0.8, 0.1, 0.1}
-  
   for step, delay in ipairs(glitchRhythm) do
      local row = math.random(boxTop + 1, boxTop + 10)
-     
-     -- Colors start shifting from Wizard (magenta) to Warden (cyan/blue)
      local col = (math.random() > 0.5) and colors.cyan or colors.blue
      if step > 3 then 
         col = (math.random() > 0.3) and colors.cyan or colors.magenta 
      end
-
      term.setTextColor(col)
      center(row, "║ " .. glitchLine(34) .. " ║", col)
      sleep(delay)
   end
 
-  -- Violent pulse right before the end
   for i = 1, 8 do
     local row = math.random(boxTop, boxTop + 11)
     center(row, glitchLine(38), colors.cyan)
     sleep(0.05)
   end
 
-  -- ==========================================
-  -- PHASE 4: Final Rune Flash & Blackout
-  -- ==========================================
   term.setBackgroundColor(colors.cyan)
   for i = 1, h do
     term.setCursorPos(1, i)
     term.setTextColor(colors.black)
     term.write(glitchLine(w))
   end
-  sleep(0.1) -- 1 blinding frame
+  sleep(0.1)
 
   term.setBackgroundColor(colors.black)
   term.clear()
-  sleep(0.5) -- 0.5s dead silence
+  sleep(0.5)
 end
 
 local function runFirstSetup()
   runDramaticWardenBoot()
-
   term.setBackgroundColor(colors.black)
   term.clear()
 
   local w, h = term.getSize()
-
   local function center(y, message, color)
     term.setCursorPos(math.max(1, math.floor((w - #message) / 2) + 1), y)
     term.setTextColor(color or colors.white)
@@ -281,7 +257,6 @@ local function runFirstSetup()
   term.setCursorPos(3, 7)
   term.setTextColor(colors.cyan)
   term.write("STEP 1: OWNER USERNAME")
-  
   term.setCursorPos(3, 9)
   term.setTextColor(colors.white)
   term.write("> ")
@@ -304,7 +279,6 @@ local function runFirstSetup()
   term.setCursorPos(3, 7)
   term.setTextColor(colors.cyan)
   term.write("STEP 2: SET ADMIN PASSWORD")
-
   term.setCursorPos(3, 9)
   term.setTextColor(colors.white)
   term.write("> ")
@@ -325,7 +299,6 @@ local function runFirstSetup()
   term.setCursorPos(3, 13)
   term.setTextColor(colors.cyan)
   term.write("STEP 3: CONFIRM PASSWORD")
-
   term.setCursorPos(3, 15)
   term.setTextColor(colors.white)
   term.write("> ")
@@ -336,7 +309,6 @@ local function runFirstSetup()
     term.setCursorPos(3, 17)
     term.setTextColor(colors.red)
     term.write("Passwords do not match! Try again.")
-    
     term.setCursorPos(5, 15)
     term.write(string.rep(" ", w - 6))
     term.setCursorPos(5, 15)
@@ -387,7 +359,7 @@ if not term.isColor() then
 end
 
 -- ============================================================
--- 2. PERIPHERAL SETUP & HARDWARE CHECK (MODEM OPTIONAL)
+-- 2. PERIPHERAL SETUP & HARDWARE CHECK
 -- ------------------------------------------------------------
 local playerDet, envDet, geoScanner, chatBox, modem
 
@@ -406,7 +378,7 @@ local function scanHardware()
   envDet = findPeripheral({"environmentDetector", "environment_detector"})
   geoScanner = findPeripheral({"geoScanner", "geo_scanner"})
   chatBox = findPeripheral({"chatBox", "chat_box"})
-  modem = findPeripheral({"modem"}) -- Optional, won't block startup if missing
+  modem = findPeripheral({"modem"})
 
   local missing = {}
   if not playerDet then table.insert(missing, "Player Detector") end
@@ -431,7 +403,6 @@ local function ensureHardwareAttached()
     center(2, "========================================", colors.red)
     center(3, "     HARDWARE CONFIGURATION REQUIRED    ", colors.orange)
     center(4, "========================================", colors.red)
-
     center(6, "Missing required peripheral(s):", colors.white)
 
     for i, item in ipairs(missing) do
@@ -442,16 +413,17 @@ local function ensureHardwareAttached()
     center(iy, "----------------------------------------", colors.gray)
     center(iy + 2, "Please attach missing blocks directly to this", colors.lightGray)
     center(iy + 3, "computer or connect them via wired modems.", colors.lightGray)
-
     center(iy + 5, "Press ANY KEY to retry scan...", colors.cyan)
 
     os.pullEventRaw("key")
     missing = scanHardware()
   end
 
-  -- If an optional modem is present, open Rednet automatically
-  if modem then
-    pcall(function() rednet.open(peripheral.getName(modem)) end)
+  -- Robustly bind any attached modems (Wireless/Ender)
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "modem" then
+      pcall(function() rednet.open(name) end)
+    end
   end
 end
 
@@ -513,7 +485,7 @@ local function sendDiscordAlert(alertMsg)
 end
 
 local function broadcastOffsite(alertMsg)
-  if modem and rednet.isOpen() then
+  if rednet.isOpen() then
     pcall(function()
       rednet.broadcast({
         system = "GraveSight",
@@ -589,7 +561,6 @@ local function loadSettings()
   if type(data.scanInterval) == "number" then SCAN_INTERVAL = math.max(2, math.min(60, data.scanInterval)) end
   if type(data.updateInterval) == "number" then UPDATE_INTERVAL = math.max(60, math.min(31536000, data.updateInterval)) end
   if type(data.theme) == "string" and UI_THEMES[data.theme] then UI_THEME = data.theme end
-
   if type(data.discordWebhook) == "string" then DISCORD_WEBHOOK = data.discordWebhook end
   if type(data.discordEnabled) == "boolean" then DISCORD_ENABLED = data.discordEnabled end
 
@@ -659,11 +630,9 @@ local function changeOwnerProtected()
   term.setCursorPos(2, 4)
   term.setTextColor(theme().accent)
   term.write("OWNER SECURITY")
-
   term.setCursorPos(2, 6)
   term.setTextColor(theme().muted)
   term.write("Current owner: " .. setup.owner)
-
   term.setCursorPos(2, 8)
   term.setTextColor(theme().accent)
   term.write("ADMIN PASSWORD")
@@ -744,7 +713,7 @@ local function backgroundLoop()
   local lastUpdateCheck = os.clock()
 
   while state.running do
-    if modem and rednet.isOpen() then
+    if rednet.isOpen() then
       local ok, senderID, msg, protocol = pcall(function()
         return rednet.receive(REDNET_CHANNEL, 0)
       end)
@@ -879,7 +848,7 @@ local function draw()
 
     term.setCursorPos(2, contentTop + 2)
     term.setTextColor(colors.lightBlue)
-    term.write("Code: v" .. VERSION .. " | ID: " .. os.getComputerID() .. " | " .. (state.updateStatus or "Not checked"))
+    term.write("v" .. VERSION .. " | ID: " .. os.getComputerID() .. " | " .. (state.updateStatus or "Not checked"))
 
     addButton(w - 20, 2, " Scan ", function() state.forceUpdate = true end)
 
@@ -1045,7 +1014,6 @@ local function draw()
     term.setCursorPos(2, 4)
     term.setTextColor(theme().accent)
     term.write("ADMIN AUTHENTICATION REQUIRED")
-
     term.setCursorPos(2, 6)
     term.setTextColor(theme().text)
     term.write("Password > ")
@@ -1127,7 +1095,6 @@ checkForUpdate = function(manual)
   end
 
   state.updateStatus = "Checking GitHub..."
-
   local response
   local ok = pcall(function() response = http.get(UPDATE_URL) end)
 
