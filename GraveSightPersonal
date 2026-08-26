@@ -40,7 +40,7 @@ local REDNET_CHANNEL = 999           -- Wireless blackbox broadcast channel
 local DISCORD_WEBHOOK = ""           -- Saved Discord Webhook URL
 local DISCORD_ENABLED = false        -- Discord alert toggle (true/false)
 
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local UPDATE_URL = "https://raw.githubusercontent.com/DiyuWupo/MCGriefCatcher/main/gravesight.lua"
 local UPDATE_INTERVAL = 31536000     -- GitHub update check delay (Startup/Manual only)
 local UPDATE_TEMP = ".gravesight_update.tmp"
@@ -49,14 +49,6 @@ local PROGRAM_PATH = shell.getRunningProgram()
 
 local CONFIG_FILE = "gravesight_config.cfg"
 local DEFAULT_OWNER = YOUR_NAME
-
--- Sculk Suspicion Analysis defaults to CAUTIOUS.
-local SCULK_SUSPICION_MODE = "Cautious"
-local SUSPICION_THRESHOLDS = {
-  LOW = 29,
-  MEDIUM = 69,
-  HIGH = 100
-}
 
 local setup = {
   configured = false,
@@ -350,7 +342,7 @@ local WHITELIST_FILE = "gravesight_whitelist.cfg"
 local whitelist = {}
 
 -- ============================================================
--- UI COLORS
+-- UI COLORS & THEMES RESTORED
 -- ============================================================
 local UI_THEMES = {
   ["Sculk"] = { background = colors.black, panel = colors.gray, text = colors.white, muted = colors.lightGray, accent = colors.cyan, selected = colors.blue, warning = colors.orange, danger = colors.red },
@@ -704,7 +696,7 @@ local function countSculk()
 end
 
 -- ============================================================
--- 8. BACKGROUND MONITORING & NETWORK DISCOVERY LISTENER
+-- 8. BACKGROUND MONITORING & NETWORK DISCOVERY
 -- ------------------------------------------------------------
 local function backgroundLoop()
   state.animals = countAnimals() or 0
@@ -721,7 +713,6 @@ local function backgroundLoop()
         return rednet.receive(REDNET_CHANNEL, 0)
       end)
       if ok and senderID and type(msg) == "table" then
-        -- Handle Pocket Remote Discovery Pings (Flux-style network sniffing)
         if msg.system == "GraveSightQuery" and msg.command == "discover" then
           pcall(function()
             rednet.send(senderID, {
@@ -731,7 +722,6 @@ local function backgroundLoop()
               owner = setup.owner
             }, REDNET_CHANNEL)
           end)
-        -- Handle Remote Scan Commands
         elseif msg.system == "GraveSightCmd" and (not msg.target or msg.target == os.getComputerID()) and msg.command == "scan" then
           state.forceUpdate = true
           addLog("REMOTE: Manual scan requested by ID " .. tostring(senderID))
@@ -810,7 +800,7 @@ local function backgroundLoop()
 end
 
 -- ============================================================
--- 9. USER INTERFACE
+-- 9. USER INTERFACE & THEME CONTROLS
 -- ------------------------------------------------------------
 local w, h = term.getSize()
 local buttons = {}
@@ -924,12 +914,13 @@ local function draw()
     term.setBackgroundColor(theme().background)
     term.setTextColor(theme().text)
 
+    -- Network Name Settings
     term.setCursorPos(2, contentTop)
     setAccent()
     term.write("NET NAME: ")
     setMuted()
-    term.write(setup.stationName:sub(1, 14) .. " ")
-    addButton(25, contentTop, " RENAME ", function()
+    term.write(setup.stationName:sub(1, 12) .. " ")
+    addButton(23, contentTop, " RENAME ", function()
       term.setCursorPos(2, contentBottom)
       term.clearLine()
       term.setTextColor(theme().accent)
@@ -939,12 +930,22 @@ local function draw()
       if newName and newName ~= "" then
         setup.stationName = newName
         saveSettings()
-        state.settingsMessage = "Network renamed to " .. newName
+        state.settingsMessage = "Renamed to " .. newName
       else
         state.settingsMessage = "Cancelled"
       end
     end)
 
+    -- Theme Selector Buttons Restored
+    term.setCursorPos(34, contentTop)
+    setAccent()
+    term.write("THEME:")
+    addButton(41, contentTop, " S ", function() setTheme("Sculk") end, UI_THEME == "Sculk" and theme().accent or theme().panel)
+    addButton(45, contentTop, " D ", function() setTheme("Deep") end, UI_THEME == "Deep" and theme().accent or theme().panel)
+    addButton(49, contentTop, " A ", function() setTheme("Ancient") end, UI_THEME == "Ancient" and theme().accent or theme().panel)
+    addButton(53, contentTop, " W ", function() setTheme("Warden") end, UI_THEME == "Warden" and theme().accent or theme().panel)
+
+    -- Owner Settings
     term.setCursorPos(2, contentTop + 2)
     setAccent()
     term.write("OWNER: ")
@@ -952,6 +953,7 @@ local function draw()
     term.write(setup.owner .. " ")
     addButton(18, contentTop + 2, " CHANGE ", function() changeOwnerProtected() end)
 
+    -- Radii Controls
     term.setCursorPos(2, contentTop + 4)
     term.setTextColor(theme().text)
     term.write("Player Radius: " .. string.format("%-3d", RADIUS))
@@ -963,6 +965,7 @@ local function draw()
     addButton(44, contentTop + 4, " - ", function() SCAN_RADIUS = math.max(MIN_SCAN_RADIUS, SCAN_RADIUS - 1); saveSettings() end)
     addButton(48, contentTop + 4, " + ", function() SCAN_RADIUS = math.min(32, SCAN_RADIUS + 1); saveSettings() end)
 
+    -- Whitelist Management
     term.setCursorPos(2, contentTop + 6)
     setAccent()
     term.write("WHITELIST: ")
@@ -1048,10 +1051,7 @@ local function uiLoop()
   end
 end
 
--- Version checker omitted for brevity/focus on net discovery, keeping standard functions
-local function parseVersion(v) return 1,0,0 end
-local function isVersionNewer() return false end
-local function getVersionFromSource() return VERSION end
+-- Version checker stubs
 checkForUpdate = function() end
 
 setThemeColors()
