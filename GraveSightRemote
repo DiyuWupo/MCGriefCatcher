@@ -5,8 +5,10 @@ local REDNET_CHANNEL = 999
 local LOG_FILE = "pocket_alerts.log"
 local running = true
 
+-- Disable raw Ctrl+T interruption for immersion
 os.pullEvent = os.pullEventRaw
 
+-- Robust Modem Verification & Opening
 local modem = peripheral.find("modem")
 if not modem then
   term.setBackgroundColor(colors.black)
@@ -38,13 +40,12 @@ local function discoverNetworks()
   term.setTextColor(colors.gray)
   print("Broadcasting on channel " .. REDNET_CHANNEL .. "...")
 
-  -- Broadcast discovery query
   pcall(function()
     rednet.broadcast({ system = "GraveSightQuery", command = "discover" }, REDNET_CHANNEL)
   end)
 
   local stations = {}
-  local timer = os.startTimer(1.5) -- Wait 1.5 seconds for responses
+  local timer = os.startTimer(1.5)
 
   while true do
     local event, p1, p2, p3 = os.pullEventRaw()
@@ -93,7 +94,6 @@ while not selectedStation do
   elseif #found == 1 then
     selectedStation = found[1]
   else
-    -- Multiple networks found: let user choose
     term.setBackgroundColor(colors.black)
     term.clear()
     term.setCursorPos(2, 2)
@@ -138,7 +138,7 @@ local function drawUI()
   term.setBackgroundColor(colors.black)
   term.setCursorPos(1, 2)
   term.setTextColor(colors.gray)
-  string.rep("-", w)
+  term.write(string.rep("-", w))
 
   -- Content
   term.setCursorPos(1, 4)
@@ -196,17 +196,12 @@ while running do
     local button, x, y = p1, p2, p3
     
     if y == h then
-      -- EXIT button
+      -- EXIT button check (Columns 1 to 6)
       if x >= 1 and x <= 6 then
-        term.setBackgroundColor(colors.black)
-        term.setTextColor(colors.white)
-        term.clear()
-        term.setCursorPos(1, 1)
-        print("Remote offline.")
-        return
+        running = false
         
-      -- SCAN button
-      elseif x >= 10 and x <= 20 then
+      -- SCAN button check (Columns 10 to 16)
+      elseif x >= 10 and x <= 16 then
         pcall(function()
           rednet.send(BASE_ID, {system = "GraveSightCmd", command = "scan"}, REDNET_CHANNEL)
         end)
@@ -218,3 +213,10 @@ while running do
     end
   end
 end
+
+-- Clean Exit Restoration
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.clear()
+term.setCursorPos(1, 1)
+print("Pocket remote disconnected safely.")
