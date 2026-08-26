@@ -7,7 +7,7 @@ local SCAN_RADIUS = 16
 local MIN_SCAN_RADIUS = 8            
 local LOG_FILE = "gravesight.log"    
 local CHECK_INTERVAL = 2             
-local SCAN_INTERVAL = 12             
+local SCAN_INTERVAL = 60             -- Optimized: Scans every 1 minute for zero lag
 local MAX_LOG_ENTRIES = 300          
 local SETTINGS_FILE = "gravesight_settings.cfg" 
 local REDNET_CHANNEL = 999           
@@ -16,7 +16,7 @@ local DISCORD_WEBHOOK = ""
 local DISCORD_ENABLED = false        
 local MODEM_ENABLED_PREF = true      
 
-local VERSION = "1.2.3"
+local VERSION = "1.2.4"
 local CONFIG_FILE = "gravesight_config.cfg"
 
 local setup = {
@@ -83,7 +83,7 @@ local function passwordCorrect(password)
 end
 
 -- ============================================================
--- 30-SECOND EPIC WARDEN BOOT ANIMATION (PURPLE START FIXED)
+-- 30-SECOND EPIC WARDEN BOOT ANIMATION
 -- ============================================================
 local function runDramaticWardenBoot()
   term.setBackgroundColor(colors.black)
@@ -395,6 +395,7 @@ local function countSculk()
 end
 
 local function backgroundLoop()
+  sleep(5) -- Login buffer: lets chunks and player data settle before first heavy scan
   state.animals = countAnimals() or 0
   local sc, cat = countSculk()
   state.sculk, state.hasCatalyst = sc or 0, cat or false
